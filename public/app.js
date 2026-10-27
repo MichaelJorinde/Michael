@@ -387,6 +387,11 @@ async function viewPosition(ticker) {
         ${p.priceError ? `<p class="warn">Koersbron: ${esc(p.priceError)}</p>` : ''}
       </section>
 
+      <section class="card chart-card" id="price-card">
+        <h2>Koersverloop</h2>
+        <div class="loading">Koershistoriek laden…</div>
+      </section>
+
       <section class="card">
         <h2>Koers manueel instellen</h2>
         <p class="muted small">Handig als de automatische koers ontbreekt of afwijkt. Enkel zichtbaar voor jou.</p>
@@ -404,6 +409,8 @@ async function viewPosition(ticker) {
       </section>
     </div>`;
 
+  loadPriceCard(ticker, p);
+
   const mp = document.getElementById('mp');
   mp.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -420,6 +427,108 @@ async function viewPosition(ticker) {
       viewPosition(ticker);
     } catch (err) { toast(err.message, true); }
   });
+}
+
+// ---------- koersverloop per ETF ----------
+
+const PRICE_RANGES = [['1M', 31], ['6M', 183], ['1J', 365], ['5J', null]];
+let priceRange = '1J';
+
+async function loadPriceCard(ticker, p) {
+  const el = document.getElementById('price-card');
+  let data;
+  try {
+    data = await api(`chart/${encodeURIComponent(ticker)}`);
+  } catch (err) {
+    if (!(err instanceof StaleView)) el.innerHTML = `<h2>Koersverloop</h2><p class="muted small">Koershistoriek niet beschikbaar: ${esc(err.message)}</p>`;
+    return;
+  }
+  const cur = p.currency;
+  const fmt = (v) => money(v, cur);
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const closes = data.closes.map(([d, c]) => ({ d, c }));
+  // Laatste punt = huidige koers.
+  const todayStr = today();
+  if (data.price != null) {
+    if (closes.length && closes[closes.length - 1].d === todayStr) closes[closes.length - 1].c = data.price;
+    else closes.push({ d: todayStr, c: data.price });
+  }
+  if (closes.length < 2) {
+    el.innerHTML = '<h2>Koersverloop</h2><p class="muted small">Nog onvoldoende koersgegevens voor een grafiek.</p>';
+    return;
+  }
+
+  // Voortschrijdende gemiddelden over 50 en 200 handelsdagen.
+  const movingAvg = (n) => {
+    let total = 0;
+    return closes.map((pt, i) => {
+      total += pt.c;
+      if (i >= n) total -= closes[i - n].c;
+      return i >= n - 1 ? total / n : null;
+    });
+  };
+  const ma50 = movingAvg(50);
+  const ma200 = movingAvg(200);
+  closes.forEach((pt, i) => { pt.ma50 = ma50[i]; pt.ma200 = ma200[i]; });
+
+  const last = closes[closes.length - 1];
+  const year = closes.filter((pt) => pt.d >= day(Date.parse(last.d) - 365 * 86400000));
+  const hi = Math.max(...year.map((pt) => pt.c));
+  const lo = Math.min(...year.map((pt) => pt.c));
+  const fromHigh = last.c / hi - 1;
+  const rangePos = hi > lo ? (last.c - lo) / (hi - lo) : 0.5;
+  const vsMa200 = last.ma200 ? last.c / last.ma200 - 1 : null;
+  const vsAvg = p.avgPrice ? last.c / p.avgPrice - 1 : null;
+
+  let verdict;
+  if ((vsMa200 != null && vsMa200 < 0) || fromHigh <= -0.1) {
+    verdict = { title: 'Relatief laag', text: `De koers ligt ${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar${vsMa200 != null && vsMa200 < 0 ? ' en onder het 200-daags gemiddelde' : ''}. Historisch waren zulke momenten gunstig om bij te kopen, al is dat geen garantie.` };
+  } else if (rangePos >= 0.9 && (vsMa200 == null || vsMa200 > 0.05)) {
+    verdict = { title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht soms op een dip; wie maandelijks inlegt, gaat gewoon door.' };
+  } else {
+    verdict = { title: 'Gemiddeld', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde.' };
+  }
+
+  const series = [
+    { key: 'c', label: 'Koers', color: 'var(--c1)' },
+    { key: 'ma50', label: '50-daags gem.', color: 'var(--c3)', width: 1.5, dash: '2 3' },
+    { key: 'ma200', label: '200-daags gem.', color: 'var(--c2)', width: 1.5, dash: '6 4' },
+  ];
+  const markers = data.purchases.map((b) => ({ d: b.date, v: b.price, label: `Aankoop: ${num(b.quantity)} × ${fmt(b.price)}${b.owner ? ` (${b.owner})` : ''}` }));
+  const shortDate = (d, long) => new Date(`${d}T00:00:00`).toLocaleDateString('nl-BE', long ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short', year: '2-digit' });
+
+  el.innerHTML = `
+    <div class="chart-head"><h2>Koersverloop</h2><span class="num"><b>${fmt(last.c)}</b></span></div>
+    <div class="chips" style="margin-top:8px">${PRICE_RANGES.map(([k]) => `<button type="button" class="chip ${k === priceRange ? 'active' : ''}" data-range="${k}">${k}</button>`).join('')}</div>
+    ${legend(series)}
+    <div id="ch-price"></div>
+    <p class="muted small" style="margin-top:4px">Stippellijn: jouw gemiddelde aankoopprijs · ○ = jouw aankopen</p>
+    <div class="verdict"><b>${verdict.title}</b>${esc(verdict.text)}</div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><div class="k">t.o.v. hoogste (1 jaar)</div><div class="v num">${pct(fromHigh)}</div><div class="muted small">hoogste ${fmt(hi)}</div></div>
+      <div class="stat"><div class="k">t.o.v. 200-daags gem.</div><div class="v num">${vsMa200 == null ? '—' : pct(vsMa200)}</div><div class="muted small">${last.ma200 ? fmt(last.ma200) : 'te weinig historiek'}</div></div>
+      <div class="stat"><div class="k">t.o.v. jouw aankoopprijs</div><div class="v num ${cls(vsAvg)}">${vsAvg == null ? '—' : pct(vsAvg)}</div><div class="muted small">gem. ${fmt(p.avgPrice)}</div></div>
+      <div class="stat"><div class="k">Plaats in 1-jaarsbereik</div><div class="v num">${num(rangePos * 100, 0)}%</div>
+        <div class="meter" style="margin-top:6px"><span style="width:${Math.max(3, rangePos * 100)}%;background:var(--c1)"></span></div>
+        <div class="muted small">0% = laagste ${fmt(lo)}</div></div>
+    </div>
+    <p class="muted small">Dit is een hulpmiddel, geen beleggingsadvies. Voor wie op lange termijn belegt, werkt regelmatig inleggen meestal beter dan proberen het perfecte moment te kiezen.</p>`;
+
+  const draw = () => {
+    const cfg = PRICE_RANGES.find(([k]) => k === priceRange);
+    const pts = cfg[1] ? closes.filter((pt) => pt.d >= day(Date.parse(last.d) - cfg[1] * 86400000)) : closes;
+    lineChart(document.getElementById('ch-price'), {
+      points: pts, series, yFormat: fmt, yTick: (v) => num(v, 0), dateFormat: shortDate,
+      refLines: p.avgPrice ? [{ value: p.avgPrice, label: `Gem. aankoop ${fmt(p.avgPrice)}` }] : [],
+      markers,
+    });
+  };
+  el.querySelectorAll('.chip[data-range]').forEach((b) => b.addEventListener('click', () => {
+    priceRange = b.dataset.range;
+    el.querySelectorAll('.chip[data-range]').forEach((c) => c.classList.toggle('active', c === b));
+    draw();
+  }));
+  draw();
 }
 
 // ---------- views: aankoop toevoegen / bewerken ----------

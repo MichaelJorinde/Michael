@@ -19,7 +19,7 @@ function niceTicks(min, max, count = 4) {
  * points: [{ d: 'YYYY-MM-DD', ...waarden }]
  * series: [{ key, label, color, area? }]
  */
-export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero = false }) {
+export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero = false, refLines = [], markers = [] }) {
   const W = Math.max(el.clientWidth, 260);
   const H = 220;
   const m = { t: 10, r: 10, b: 26, l: 50 };
@@ -29,7 +29,8 @@ export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero
   const times = points.map((p) => Date.parse(p.d));
   const t0 = times[0];
   const t1 = times[times.length - 1] === t0 ? t0 + 86400000 : times[times.length - 1];
-  const vals = points.flatMap((p) => series.map((s) => p[s.key]));
+  const vals = points.flatMap((p) => series.map((s) => p[s.key])).filter((v) => v != null);
+  refLines.forEach((r) => vals.push(r.value));
   if (zero) vals.push(0);
   const ticks = niceTicks(Math.min(...vals), Math.max(...vals));
   const y0 = ticks[0];
@@ -47,18 +48,30 @@ export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero
       text-anchor="${n === 0 ? 'start' : n === arr.length - 1 ? 'end' : 'middle'}">${esc(dateFormat(points[i].d))}</text>`).join('');
 
   const paths = series.map((s) => {
-    const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(times[i]).toFixed(1)},${y(p[s.key]).toFixed(1)}`).join('');
+    // Lege waarden (null) onderbreken de lijn, bv. een voortschrijdend gemiddelde aan het begin.
+    let pen = 'M';
+    const line = points.map((p, i) => {
+      if (p[s.key] == null) { pen = 'M'; return ''; }
+      const seg = `${pen}${x(times[i]).toFixed(1)},${y(p[s.key]).toFixed(1)}`;
+      pen = 'L';
+      return seg;
+    }).join('');
     const base = y(Math.max(y0, Math.min(0, y1)));
     const area = s.area
       ? `<path d="${line}L${x(times[times.length - 1]).toFixed(1)},${base}L${x(t0).toFixed(1)},${base}Z" fill="${s.color}" opacity=".14"/>`
       : '';
-    return `${area}<path d="${line}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    return `${area}<path d="${line}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}"${s.dash ? ` stroke-dasharray="${s.dash}"` : ''} stroke-linejoin="round" stroke-linecap="round"/>`;
   }).join('');
+  const refs = refLines.map((r) => `
+    <line x1="${m.l}" x2="${W - m.r}" y1="${y(r.value)}" y2="${y(r.value)}" class="cc-ref"/>
+    <text x="${m.l + 4}" y="${y(r.value) - 5}" class="ch-axis cc-ref-label">${esc(r.label)}</text>`).join('');
+  const marks = markers.filter((mk) => Date.parse(mk.d) >= t0 && Date.parse(mk.d) <= t1).map((mk) => `
+    <circle cx="${x(Date.parse(mk.d))}" cy="${y(mk.v)}" r="5" class="ch-marker"><title>${esc(mk.label)}</title></circle>`).join('');
 
   el.classList.add('ch');
   el.innerHTML = `
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map((s) => s.label).join(', '))}">
-      ${grid}${xLabels}${paths}
+      ${grid}${xLabels}${refs}${paths}${marks}
       <g class="ch-cross" visibility="hidden">
         <line y1="${m.t}" y2="${m.t + ih}" class="ch-crossline"/>
         ${series.map((s) => `<circle r="4.5" fill="${s.color}" class="ch-dot"/>`).join('')}
@@ -82,12 +95,16 @@ export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero
     crossLine.setAttribute('x1', px);
     crossLine.setAttribute('x2', px);
     series.forEach((s, k) => {
+      const v = points[i][s.key];
+      dots[k].setAttribute('visibility', v == null ? 'hidden' : 'inherit');
       dots[k].setAttribute('cx', px);
-      dots[k].setAttribute('cy', y(points[i][s.key]));
+      if (v != null) dots[k].setAttribute('cy', y(v));
     });
+    const buys = markers.filter((mk) => mk.d === points[i].d);
     cross.setAttribute('visibility', 'visible');
-    tip.innerHTML = `<div class="ch-tip-d">${esc(dateFormat(points[i].d, true))}</div>${series.map((s) => `
-      <div class="ch-tip-r"><i style="background:${s.color}"></i><span>${esc(s.label)}</span><b>${esc(yFormat(points[i][s.key]))}</b></div>`).join('')}`;
+    tip.innerHTML = `<div class="ch-tip-d">${esc(dateFormat(points[i].d, true))}</div>${series.filter((s) => points[i][s.key] != null).map((s) => `
+      <div class="ch-tip-r"><i style="background:${s.color}"></i><span>${esc(s.label)}</span><b>${esc(yFormat(points[i][s.key]))}</b></div>`).join('')}
+      ${buys.map((mk) => `<div class="ch-tip-r ch-tip-total"><i class="ch-tip-marker"></i><span>${esc(mk.label)}</span></div>`).join('')}`;
     tip.hidden = false;
     const tw = tip.offsetWidth;
     tip.style.left = `${Math.min(Math.max(px - tw / 2, 0), W - tw)}px`;
