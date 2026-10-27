@@ -5,8 +5,11 @@ import { requirePrivate } from './private.js';
 export const CATEGORIES = [
   'Wonen', 'Energie & water', 'Verzekeringen', 'Telecom & abonnementen', 'Boodschappen', 'Vervoer',
   'Kinderen & school', 'Gezondheid', 'Belastingen', 'Sparen & beleggen', 'Vrije tijd & shopping', 'Horeca',
-  'Cash', 'Overige', 'Inkomsten',
+  'Cash', 'Persoonlijke verzorging', 'Kredietkaart', 'Gezinsrekening', 'Spaarpotjes', 'Interne overschrijving', 'Overige', 'Inkomsten',
 ];
+
+// Geen echte uitgave of inkomst: geld dat naar (of van) je eigen rekeningen en potjes gaat.
+export const NON_SPEND = ['Sparen & beleggen', 'Spaarpotjes', 'Interne overschrijving'];
 
 // Trefwoorden (kleine letters) per categorie, afgestemd op Belgische tegenpartijen.
 const KEYWORDS = [
@@ -14,15 +17,17 @@ const KEYWORDS = [
   ['Verzekeringen', ['verzekering', 'assurance', 'ethias', 'ag insurance', 'axa', 'baloise', 'p&v', 'dvv', 'allianz', 'vivium', 'federale', 'kbc verzeker', 'belfius insurance', 'dela', 'yuzzu', 'corona direct']],
   ['Telecom & abonnementen', ['proximus', 'telenet', 'orange', 'base ', 'mobile vikings', 'scarlet', 'voo', 'netflix', 'spotify', 'disney', 'apple.com', 'itunes', 'google', 'youtube', 'hbo', 'streamz', 'prime video', 'amazon prime', 'icloud', 'microsoft', 'adobe', 'chatgpt', 'openai', 'anthropic', 'claude', 'dropbox', 'canal', 'dpg media', 'mediahuis', 'het nieuwsblad', 'de standaard']],
   ['Wonen', ['hypothe', 'woonkrediet', 'lening', 'krediet', 'huur', 'syndic', 'onroerende voorheffing', 'kadast', 'ivago', 'recupel', 'afvalintercommunale', 'ilva', 'iverlek', 'mirom', 'verko']],
-  ['Boodschappen', ['colruyt', 'delhaize', 'aldi', 'lidl', 'carrefour', 'albert heijn', 'okay', 'spar', 'intermarch', 'jumbo', 'bioplanet', 'match', 'cora', 'louis delhaize', 'slagerij', 'bakkerij', 'bakker', 'beenhouwerij', 'kruidvat', 'hema', 'action', 'trafic', 'zeeman']],
-  ['Vervoer', ['q8', 'shell', 'esso', 'lukoil', 'dats 24', 'gabri', 'texaco', 'tankstation', 'nmbs', 'sncb', 'de lijn', 'parking', 'interparking', 'tesla', 'ionity', 'allego', 'car wash', 'carwash', 'garage', "d'ieteren", 'autokeuring', 'aibv', 'touring', 'vab', 'blue bike', 'cambio', 'kilometerheffing', 'viapass']],
+  ['Boodschappen', ['co&go', 'collect&go', 'collect & go', 'colruyt', 'delhaize', 'aldi', 'lidl', 'carrefour', 'albert heijn', 'okay', 'spar', 'intermarch', 'jumbo', 'bioplanet', 'match', 'cora', 'louis delhaize', 'slagerij', 'bakkerij', 'bakker', 'beenhouwerij', 'kruidvat', 'hema', 'action', 'trafic', 'zeeman']],
+  ['Vervoer', ['maes ', 'q8', 'shell', 'esso', 'lukoil', 'dats 24', 'gabri', 'texaco', 'tankstation', 'nmbs', 'sncb', 'de lijn', 'parking', 'interparking', 'tesla', 'ionity', 'allego', 'car wash', 'carwash', 'garage', "d'ieteren", 'autokeuring', 'aibv', 'touring', 'vab', 'blue bike', 'cambio', 'kilometerheffing', 'viapass']],
   ['Kinderen & school', ['school', 'kinderopvang', 'crèche', 'creche', 'opvang', 'scholengroep', 'academie', 'jeugdbeweging', 'chiro', 'scouts', 'ksa', 'speelplein', 'kampen', 'muziekschool']],
   ['Gezondheid', ['apotheek', 'pharma', 'mutualiteit', 'ziekenfonds', 'cm ', 'helan', 'solidaris', 'partena', 'ziekenhuis', 'az ', 'uz ', 'dokter', 'huisarts', 'tandarts', 'kinesist', 'optiek', 'pearle', 'hans anders']],
-  ['Belastingen', ['fod financi', 'belasting', 'vlaamse belastingdienst', 'gemeentebestuur', 'stad ', 'gemeente', 'provincie', 'verkeersbelasting', 'belastingdienst']],
+  ['Belastingen', ['vlabel', 'fod financi', 'belasting', 'vlaamse belastingdienst', 'gemeentebestuur', 'stad ', 'gemeente', 'provincie', 'verkeersbelasting', 'belastingdienst']],
   ['Sparen & beleggen', ['bolero', 'degiro', 'keytrade', 'saxo', 'trade republic', 'spaarrekening', 'pensioensparen', 'beleggingsrekening', 'easy invest', 'birdee', 'curvo', 'ing invest', 'lynx', 'rebel']],
   ['Horeca', ['restaurant', 'cafe', 'café', 'bistro', 'brasserie', 'pizzeria', 'frituur', 'friture', 'mcdonald', 'quick', 'burger king', 'takeaway', 'uber eats', 'deliveroo', 'starbucks', 'panos', 'exki', 'brood', 'sushi']],
   ['Vrije tijd & shopping', ['kinepolis', 'decathlon', 'bol.com', 'zalando', 'amazon', 'ikea', 'mediamarkt', 'coolblue', 'vanden borre', 'fnac', 'standaard boekhandel', 'brico', 'gamma', 'hubo', 'aveve', 'primark', 'c&a', 'h&m', 'zara', 'jbc', 'torfs', 'sport', 'fitness', 'basic-fit', 'zwembad', 'plopsa', 'pairi daiza', 'booking.com', 'airbnb', 'ryanair', 'brussels airlines', 'tui']],
   ['Cash', ['geldopname', 'atm', 'bancontact cash', 'cash withdrawal', 'retrait']],
+  ['Kredietkaart', ['mastercard', 'bank card company', 'kredietkaart afrekening', 'visa afrekening']],
+  ['Persoonlijke verzorging', ['kapper', 'kapsalon', 'coiffure', 'barber', 'schoonheid', 'nagelstudio']],
 ];
 
 export const ruleKey = (counterparty) => counterparty.toLowerCase().replace(/\s+/g, ' ').trim();

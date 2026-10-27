@@ -9,7 +9,9 @@ const FREQ = [
   { name: 'halfjaarlijks', min: 170, max: 200, perMonth: 1 / 6 },
   { name: 'jaarlijks', min: 330, max: 400, perMonth: 1 / 12 },
 ];
-const VARIABLE = new Set(['Boodschappen', 'Horeca', 'Vrije tijd & shopping', 'Cash', 'Inkomsten']);
+const VARIABLE = new Set(['Boodschappen', 'Horeca', 'Vrije tijd & shopping', 'Cash', 'Inkomsten', 'Kredietkaart']);
+// Geld naar je eigen rekeningen en potjes: geen uitgave (en terug: geen inkomen).
+const NON_SPEND = new Set(['Sparen & beleggen', 'Spaarpotjes', 'Interne overschrijving']);
 const COLORS = [1, 2, 3, 4, 5, 6, 7].map((i) => `var(--c${i})`);
 const OTHER = 'var(--muted)';
 
@@ -19,7 +21,7 @@ const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
 // Terugkerende uitgaven: zelfde tegenpartij, regelmatig interval en een vrij stabiel bedrag.
 export function detectRecurring(txs) {
   const groups = new Map();
-  txs.filter((t) => t.amount < 0).forEach((t) => {
+  txs.filter((t) => t.amount < 0 && !NON_SPEND.has(t.category)).forEach((t) => {
     const k = t.counterparty.toLowerCase();
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(t);
@@ -75,9 +77,11 @@ export function financeViews({ app, api, esc, money, num, toast, setChrome, gate
     // Volledige maanden: de eerste en laatste maand zijn vaak onvolledig.
     const full = months.length > 2 ? months.slice(1, -1) : months;
     const inFull = (t) => full.includes(t.date.slice(0, 7));
-    const spend = txs.filter((t) => t.amount < 0);
+    const spend = txs.filter((t) => t.amount < 0 && !NON_SPEND.has(t.category));
     const avgSpend = spend.filter(inFull).reduce((s, t) => s - t.amount, 0) / full.length;
-    const avgIncome = txs.filter((t) => t.amount > 0 && inFull(t)).reduce((s, t) => s + t.amount, 0) / full.length;
+    const avgIncome = txs.filter((t) => t.amount > 0 && t.category === 'Inkomsten' && inFull(t)).reduce((s, t) => s + t.amount, 0) / full.length;
+    // Netto naar potjes en spaar-/beleggingsrekeningen (stortingen min opnames).
+    const avgSaved = txs.filter((t) => NON_SPEND.has(t.category) && t.category !== 'Interne overschrijving' && inFull(t)).reduce((s, t) => s - t.amount, 0) / full.length;
     const fixed = detectRecurring(txs);
     const fixedTotal = fixed.reduce((s, f) => s + f.perMonth, 0);
 
@@ -108,7 +112,8 @@ export function financeViews({ app, api, esc, money, num, toast, setChrome, gate
             <div class="stat"><div class="k">Vaste kosten / maand</div><div class="v num">${eur(fixedTotal)}</div></div>
             <div class="stat"><div class="k">Inkomsten / maand</div><div class="v num">${eur(avgIncome)}</div></div>
             <div class="stat"><div class="k">Variabel / maand</div><div class="v num">${eur(Math.max(0, avgSpend - fixedTotal))}</div></div>
-            <div class="stat"><div class="k">Over / maand</div><div class="v num ${avgIncome - avgSpend >= 0 ? 'gain' : 'loss'}">${eur(avgIncome - avgSpend)}</div></div>
+            <div class="stat"><div class="k">Naar potjes & sparen / maand</div><div class="v num">${eur(avgSaved)}</div></div>
+            <div class="stat"><div class="k">Over / maand</div><div class="v num ${avgIncome - avgSpend - avgSaved >= 0 ? 'gain' : 'loss'}">${eur(avgIncome - avgSpend - avgSaved)}</div></div>
           </div>
         </section>
 
