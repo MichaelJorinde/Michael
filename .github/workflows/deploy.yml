@@ -1,0 +1,33 @@
+name: Deploy naar Cloudflare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Pages-project aanmaken (enkel de eerste keer)
+        run: npx wrangler pages project create etf-tracker --production-branch=main || true
+
+      - name: D1-migraties toepassen
+        run: npx wrangler d1 migrations apply etf-tracker --remote
+
+      - name: Deployen naar Cloudflare Pages
+        run: npx wrangler pages deploy --project-name=etf-tracker --branch=main --commit-dirty=true

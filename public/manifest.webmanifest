@@ -1,0 +1,14 @@
+{
+  "name": "ETF Tracker",
+  "short_name": "ETF Tracker",
+  "description": "Volg je ETF-investeringen op",
+  "lang": "nl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f6",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
