@@ -1,7 +1,7 @@
 {
-  "name": "ETF Tracker",
-  "short_name": "ETF Tracker",
-  "description": "Volg je ETF-investeringen op",
+  "name": "Mijn Dashboard",
+  "short_name": "Dashboard",
+  "description": "Volg je ETF-investeringen en je energieverbruik op",
   "lang": "nl",
   "start_url": "/",
   "scope": "/",

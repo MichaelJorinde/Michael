@@ -1,8 +1,11 @@
-# ETF Tracker
+# Mijn Dashboard (ETF's + Energie)
 
-Mobiele webapp om je ETF-investeringen op te volgen: aankopen registreren, en zien
-hoeveel je geïnvesteerd hebt en wat het nu waard is. Meerdere accounts mogelijk;
-elke gebruiker ziet enkel zijn eigen portefeuille.
+Mobiele webapp met twee onderdelen:
+- **ETF's:** aankopen registreren en zien hoeveel je geïnvesteerd hebt en wat het nu waard is.
+- **Energie:** maandelijks totaalverbruik uit HomeWizard (elektriciteit afname/injectie, gas, water)
+  met verbruik en kosten per maand in grafieken.
+
+Meerdere accounts mogelijk; elke gebruiker ziet enkel zijn eigen gegevens.
 
 **Stack:** Cloudflare Pages (statische frontend in `public/`) + Pages Functions
 (API in `functions/`) + Cloudflare D1 (SQLite). Geen build-stap.
@@ -16,6 +19,8 @@ Koersen komen van Yahoo Finance (gratis, geen API-sleutel) en worden 15 min geca
 - **Voor wie?** Elke aankoop krijgt een naam (jezelf, een kind, …), met een uitsplitsing en filter per persoon
 - **Grafieken:** waarde en inleg doorheen de tijd, winst/verlies, winst per ETF en per persoon
 - Detail per positie: aantal stuks, gemiddelde aankoopprijs, kosten, en een manuele koers als terugvaloptie
+- **Energie:** één keer per maand het totaalverbruik ingeven (kWh afname en injectie, m³ gas, liter water),
+  tarieven met geldigheidsdatum, verbruik en kosten per maand per onderdeel in grafieken en tabellen
 - Mobile-first ontwerp, donkere modus, toe te voegen aan het beginscherm (PWA)
 
 ## Eenmalige installatie (kan volledig vanaf je gsm)
@@ -61,3 +66,6 @@ npm run dev        # http://localhost:8788 met een lokale D1-database
 | GET / POST / PUT / DELETE | `/api/purchases[/:id]` | Aankopen |
 | GET | `/api/search?q=`, `/api/quote/:ticker` | Ticker zoeken / koers opvragen |
 | PUT / DELETE | `/api/prices/:ticker` | Manuele koers instellen of wissen |
+| PUT / DELETE | `/api/energy/usage/:maand` | Maandverbruik (YYYY-MM) |
+| GET / POST / PUT / DELETE | `/api/energy/tariffs[/:id]` | Energietarieven |
+| GET | `/api/energy/monthly` | Verbruik en kosten per maand |

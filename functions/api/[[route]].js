@@ -5,6 +5,7 @@ import {
 } from '../_lib/auth.js';
 import { getPrices, searchTickers } from '../_lib/prices.js';
 import { getHistories } from '../_lib/history.js';
+import { USAGE_FIELDS, TARIFF_FIELDS, monthlyOverview } from '../_lib/energy.js';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-^=]{0,19}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -239,6 +240,104 @@ function valueSeries(rows, dates, histories, priceOf, todayStr) {
   });
 }
 
+// ---------- energie ----------
+
+function parseDate(value) {
+  const date = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new HttpError(400, 'Ongeldige datum');
+  return date;
+}
+
+function optionalNumber(value, label) {
+  if (value === '' || value == null) return null;
+  return positiveNumber(value, label, { allowZero: true });
+}
+
+const USAGE_LABELS = { elec_import: 'afname', elec_export: 'injectie', gas: 'gas', water: 'water' };
+
+function parseMonth(value) {
+  const month = String(value || '');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new HttpError(400, 'Ongeldige maand');
+  return month;
+}
+
+function parseUsage(body) {
+  const u = { note: body.note ? String(body.note).trim().slice(0, 200) : null };
+  for (const k of USAGE_FIELDS) u[k] = optionalNumber(body[k], USAGE_LABELS[k]);
+  if (USAGE_FIELDS.every((k) => u[k] == null)) throw new HttpError(400, 'Vul minstens één verbruik in');
+  return u;
+}
+
+function parseTariff(body) {
+  const t = { valid_from: parseDate(body.valid_from) };
+  for (const k of TARIFF_FIELDS) t[k] = optionalNumber(body[k], k) ?? 0;
+  return t;
+}
+
+const tariffOut = ({ user_id, ...t }) => t;
+
+async function energyRoute(method, key, kind, request, db, user) {
+  if (kind === 'monthly' && method === 'GET') {
+    const [{ results: rows }, { results: tariffs }] = await Promise.all([
+      db.prepare('SELECT * FROM energy_usage WHERE user_id = ?').bind(user.id).all(),
+      db.prepare('SELECT * FROM energy_tariffs WHERE user_id = ?').bind(user.id).all(),
+    ]);
+    return json({ months: monthlyOverview(rows, tariffs), tariffs: tariffs.map(tariffOut) });
+  }
+
+  if (kind === 'usage' && key) {
+    const month = parseMonth(key);
+    if (method === 'PUT') {
+      const u = parseUsage(await readJson(request));
+      await db.prepare(
+        `INSERT INTO energy_usage (user_id, month, ${USAGE_FIELDS.join(', ')}, note, updated_at)
+         VALUES (?, ?, ${USAGE_FIELDS.map(() => '?').join(', ')}, ?, datetime('now'))
+         ON CONFLICT(user_id, month) DO UPDATE SET ${USAGE_FIELDS.map((k) => `${k} = excluded.${k}`).join(', ')},
+           note = excluded.note, updated_at = excluded.updated_at`,
+      ).bind(user.id, month, ...USAGE_FIELDS.map((k) => u[k]), u.note).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const res = await db.prepare('DELETE FROM energy_usage WHERE user_id = ? AND month = ?').bind(user.id, month).run();
+      if (!res.meta.changes) throw new HttpError(404, 'Maand niet gevonden');
+      return json({ ok: true });
+    }
+  }
+
+  if (kind === 'tariffs') {
+    const id = key != null ? Number(key) : null;
+    if (key != null && !Number.isInteger(id)) throw new HttpError(404, 'Niet gevonden');
+    if (!id && method === 'GET') {
+      const { results } = await db.prepare('SELECT * FROM energy_tariffs WHERE user_id = ? ORDER BY valid_from DESC').bind(user.id).all();
+      return json({ tariffs: results.map(tariffOut) });
+    }
+    if (!id && method === 'POST') {
+      const t = parseTariff(await readJson(request));
+      const row = await db.prepare(
+        `INSERT INTO energy_tariffs (user_id, valid_from, ${TARIFF_FIELDS.join(', ')})
+         VALUES (?, ?, ${TARIFF_FIELDS.map(() => '?').join(', ')}) RETURNING *`,
+      ).bind(user.id, t.valid_from, ...TARIFF_FIELDS.map((k) => t[k])).first();
+      return json({ tariff: tariffOut(row) }, 201);
+    }
+    if (id && method === 'PUT') {
+      const t = parseTariff(await readJson(request));
+      const row = await db.prepare(
+        `UPDATE energy_tariffs SET valid_from = ?, ${TARIFF_FIELDS.map((k) => `${k} = ?`).join(', ')}
+         WHERE id = ? AND user_id = ? RETURNING *`,
+      ).bind(t.valid_from, ...TARIFF_FIELDS.map((k) => t[k]), id, user.id).first();
+      if (!row) throw new HttpError(404, 'Tarief niet gevonden');
+      return json({ tariff: tariffOut(row) });
+    }
+    if (id && method === 'DELETE') {
+      const res = await db.prepare('DELETE FROM energy_tariffs WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+      if (!res.meta.changes) throw new HttpError(404, 'Tarief niet gevonden');
+      return json({ ok: true });
+    }
+  }
+
+  throw new HttpError(404, 'Niet gevonden');
+}
+
 // ---------- routes ----------
 
 async function route(method, parts, request, env, url) {
@@ -312,6 +411,8 @@ async function route(method, parts, request, env, url) {
       return json({ ok: true }, 200, { 'set-cookie': await createSession(db, user.id) });
     }
   }
+
+  if (a === 'energy') return energyRoute(method, parts[2] ?? null, b, request, db, user);
 
   if (a === 'portfolio' && method === 'GET') {
     return json(await buildPortfolio(db, user, {

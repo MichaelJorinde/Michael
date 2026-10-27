@@ -1,12 +1,15 @@
 // ETF Tracker — single-page app zonder build-stap.
 import { lineChart, barChart, legend } from './charts.js';
+import { energyViews } from './energy.js';
 
 const app = document.getElementById('app');
-const tabbar = document.getElementById('tabbar');
+const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy') };
+const sectionNav = document.getElementById('sections');
 const topbarUser = document.getElementById('topbar-user');
 const toastEl = document.getElementById('toast');
 
-const state = { user: null, config: null, owner: null };
+const state = { user: null, config: null, owner: null, section: 'etf' };
+try { state.section = localStorage.getItem('section') === 'energy' ? 'energy' : 'etf'; } catch { /* privémodus */ }
 // Vaste volgorde van grafiekkleuren (CSS-variabelen, met donkere variant)
 const COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `var(--c${i})`);
 const OTHER_COLOR = 'var(--muted)';
@@ -98,12 +101,21 @@ async function submitting(form, fn) {
   }
 }
 
-function setChrome(tab) {
+// section: 'etf' of 'energy'; zonder section blijft het huidige onderdeel actief (bv. Account).
+function setChrome(tab, section = tab ? 'etf' : state.section) {
   const loggedIn = Boolean(state.user);
-  tabbar.hidden = !loggedIn;
+  if (loggedIn && section !== state.section) {
+    state.section = section;
+    try { localStorage.setItem('section', section); } catch { /* privémodus */ }
+  }
+  Object.entries(tabbars).forEach(([k, bar]) => {
+    bar.hidden = !loggedIn || k !== state.section;
+    bar.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  });
+  sectionNav.hidden = !loggedIn;
+  sectionNav.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.section === state.section));
   document.body.classList.toggle('no-tabs', !loggedIn);
   topbarUser.textContent = loggedIn ? state.user.name : '';
-  tabbar.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
 }
 
 // ---------- views: auth ----------
@@ -131,7 +143,7 @@ function viewLogin() {
     submitting(f, async () => {
       const { user } = await api('auth/login', { method: 'POST', body: { email: f.email.value, password: f.password.value } });
       state.user = user;
-      location.hash = '#/';
+      location.hash = state.section === 'energy' ? '#/energy' : '#/';
     });
   });
 }
@@ -168,7 +180,7 @@ function viewRegister() {
         body: { name: f.name.value, email: f.email.value, password: f.password.value, code: f.code?.value },
       });
       state.user = user;
-      location.hash = '#/';
+      location.hash = state.section === 'energy' ? '#/energy' : '#/';
     });
   });
 }
@@ -734,7 +746,7 @@ async function viewPurchases() {
 // ---------- views: account ----------
 
 function viewSettings() {
-  setChrome('settings');
+  setChrome('settings', state.section);
   app.innerHTML = `
     <div class="stack">
       <section class="card">
@@ -756,6 +768,7 @@ function viewSettings() {
       <section class="card small muted">
         <p>Tip: voeg deze site toe aan je beginscherm (deel-menu → "Zet op beginscherm") om hem als app te gebruiken.</p>
         <p>Koersen komen van Yahoo Finance en worden 15 minuten gecachet.</p>
+        <p>Energie: je maandverbruik geef je zelf in vanuit de HomeWizard Energy-app.</p>
       </section>
     </div>`;
   document.getElementById('logout').addEventListener('click', async () => {
@@ -774,6 +787,8 @@ function viewSettings() {
   });
 }
 
+const energy = energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt });
+
 // ---------- router ----------
 
 async function render() {
@@ -783,7 +798,7 @@ async function render() {
   const publicRoute = parts[0] === 'login' || parts[0] === 'register';
 
   if (!state.user && !publicRoute) { location.hash = '#/login'; return; }
-  if (state.user && publicRoute) { location.hash = '#/'; return; }
+  if (state.user && publicRoute) { location.hash = state.section === 'energy' ? '#/energy' : '#/'; return; }
 
   window.scrollTo(0, 0);
   try {
@@ -796,6 +811,16 @@ async function render() {
       case 'charts': return await viewCharts();
       case 'position': return await viewPosition(decodeURIComponent(parts[1] || ''));
       case 'settings': return viewSettings();
+      case 'energy':
+        switch (parts[1]) {
+          case 'add': return await energy.monthForm(null);
+          case 'month': return await energy.monthForm(parts[2]);
+          case 'months': return await energy.monthsList();
+          case 'import': return await energy.importView();
+          case 'tariffs': return await energy.tariffs();
+          case 'tariff': return await energy.tariffForm(parts[2]);
+          default: return await energy.overview();
+        }
       default: return await viewDashboard();
     }
   } catch (err) {

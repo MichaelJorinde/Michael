@@ -132,3 +132,105 @@ export function barChart({ items, series, format }) {
 export function legend(series) {
   return `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('')}</div>`;
 }
+
+// Pad voor een staaf met afgeronde uiteinden aan de kant weg van de nullijn.
+function barPath(x, y, w, h, roundTop, roundBottom) {
+  const r = Math.min(4, w / 2, h);
+  const rt = roundTop ? r : 0;
+  const rb = roundBottom ? r : 0;
+  return `M${x},${y + rt}a${rt},${rt} 0 0 1 ${rt},${-rt}h${w - 2 * rt}a${rt},${rt} 0 0 1 ${rt},${rt}`
+    + `v${h - rt - rb}a${rb},${rb} 0 0 1 ${-rb},${rb}h${-(w - 2 * rb)}a${rb},${rb} 0 0 1 ${-rb},${-rb}Z`;
+}
+
+/**
+ * Kolomgrafiek (SVG), gestapeld, met negatieve waarden onder de nullijn.
+ * labels: ['jan', ...]; rows: [{ [key]: number } | null]; series: [{ key, label, color }]
+ */
+export function columnChart(el, { labels, longLabels = labels, rows, series, format, tickFormat, totalLabel = 'Totaal' }) {
+  const W = Math.max(el.clientWidth, 260);
+  const H = 220;
+  const m = { t: 10, r: 4, b: 24, l: 48 };
+  const iw = W - m.l - m.r;
+  const ih = H - m.t - m.b;
+  const n = labels.length;
+
+  const sums = rows.map((r) => {
+    if (!r) return { pos: 0, neg: 0 };
+    let pos = 0;
+    let neg = 0;
+    series.forEach((s) => { const v = r[s.key] ?? 0; if (v > 0) pos += v; else neg += v; });
+    return { pos, neg };
+  });
+  const ticks = niceTicks(Math.min(0, ...sums.map((s) => s.neg)), Math.max(0, ...sums.map((s) => s.pos), 0.0001));
+  const y0 = ticks[0];
+  const y1 = ticks[ticks.length - 1];
+  const y = (v) => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
+  const slot = iw / n;
+  const bw = Math.min(26, slot * 0.64);
+
+  const grid = ticks.map((v) => `
+    <line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? 'ch-zero' : 'ch-grid'}"/>
+    <text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end" class="ch-axis">${esc(tickFormat(v))}</text>`).join('');
+  const every = n > 12 ? Math.ceil(n / 12) : 1;
+  const xLabels = labels.map((l, i) => (i % every ? '' : `
+    <text x="${m.l + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle" class="ch-axis">${esc(l)}</text>`)).join('');
+
+  const cols = rows.map((r, i) => {
+    if (!r) return '';
+    const x = m.l + slot * i + (slot - bw) / 2;
+    const pos = series.filter((s) => (r[s.key] ?? 0) > 0);
+    const neg = series.filter((s) => (r[s.key] ?? 0) < 0);
+    let up = 0;
+    let down = 0;
+    const segs = [
+      ...pos.map((s, k) => {
+        const v = r[s.key];
+        const top = y(up + v);
+        const h = y(up) - top;
+        up += v;
+        return `<path d="${barPath(x, top, bw, h, k === pos.length - 1, false)}" fill="${s.color}" class="cc-seg"/>`;
+      }),
+      ...neg.map((s, k) => {
+        const v = r[s.key];
+        const top = y(down);
+        const h = y(down + v) - top;
+        down += v;
+        return `<path d="${barPath(x, top, bw, h, false, k === neg.length - 1)}" fill="${s.color}" class="cc-seg"/>`;
+      }),
+    ].join('');
+    return `<g class="cc-col" data-i="${i}">${segs}</g>`;
+  }).join('');
+
+  el.classList.add('ch');
+  el.innerHTML = `
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map((s) => s.label).join(', '))}">
+      ${grid}${xLabels}${cols}
+      ${rows.map((r, i) => (r ? `<rect x="${m.l + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent" class="cc-hit" data-i="${i}"/>` : '')).join('')}
+    </svg>
+    <div class="ch-tip" hidden></div>`;
+
+  const svg = el.querySelector('svg');
+  const tip = el.querySelector('.ch-tip');
+  const showCol = (i) => {
+    const r = rows[i];
+    svg.querySelectorAll('.cc-col').forEach((g) => g.classList.toggle('dim', g.dataset.i !== String(i)));
+    const visible = series.filter((s) => r[s.key] != null);
+    const total = visible.reduce((a, s) => a + r[s.key], 0);
+    tip.innerHTML = `<div class="ch-tip-d">${esc(longLabels[i])}</div>${visible.map((s) => `
+      <div class="ch-tip-r"><i style="background:${s.color}"></i><span>${esc(s.label)}</span><b>${esc(format(r[s.key]))}</b></div>`).join('')}
+      ${visible.length > 1 ? `<div class="ch-tip-r ch-tip-total"><i></i><span>${esc(totalLabel)}</span><b>${esc(format(total))}</b></div>` : ''}`;
+    tip.hidden = false;
+    const cx = m.l + slot * i + slot / 2;
+    const tw = tip.offsetWidth;
+    tip.style.left = `${Math.min(Math.max(cx - tw / 2, 0), W - tw)}px`;
+  };
+  const hide = () => {
+    tip.hidden = true;
+    svg.querySelectorAll('.cc-col').forEach((g) => g.classList.remove('dim'));
+  };
+  svg.querySelectorAll('.cc-hit').forEach((h) => {
+    h.addEventListener('pointerdown', () => showCol(Number(h.dataset.i)));
+    h.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showCol(Number(h.dataset.i)); });
+  });
+  svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });
+}
