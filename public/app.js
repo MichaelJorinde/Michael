@@ -61,7 +61,14 @@ function toast(msg, isError = false) {
   toast.t = setTimeout(() => { toastEl.hidden = true; }, 3000);
 }
 
+// Elke navigatie krijgt een volgnummer. Antwoorden die binnenkomen nadat de gebruiker al
+// naar een ander scherm ging, worden genegeerd, zodat een traag scherm (bv. Energie)
+// het nieuwe scherm (bv. ETF's) niet meer kan overschrijven.
+let renderSeq = 0;
+class StaleView extends Error {}
+
 async function api(path, { method = 'GET', body } = {}) {
+  const seq = renderSeq;
   const res = await fetch(`/api/${path}`, {
     method,
     headers: body ? { 'content-type': 'application/json' } : {},
@@ -75,6 +82,7 @@ async function api(path, { method = 'GET', body } = {}) {
     throw new Error('Niet aangemeld');
   }
   if (!res.ok) throw new Error(data.error || `Fout ${res.status}`);
+  if (method === 'GET' && seq !== renderSeq) throw new StaleView();
   return data;
 }
 
@@ -792,6 +800,7 @@ const energy = energyViews({ app, api, esc, money, num, toast, submitting, setCh
 // ---------- router ----------
 
 async function render() {
+  renderSeq += 1;
   const [path, query] = location.hash.slice(1).split('?');
   const parts = (path || '/').split('/').filter(Boolean);
   const params = new URLSearchParams(query || '');
@@ -825,6 +834,7 @@ async function render() {
       default: return await viewDashboard();
     }
   } catch (err) {
+    if (err instanceof StaleView) return; // gebruiker is al naar een ander scherm gegaan
     if (state.user) app.innerHTML = `<div class="empty">${esc(err.message)}<br><br><a href="#/">Opnieuw proberen</a></div>`;
   }
 }
@@ -840,6 +850,13 @@ async function init() {
     if (res.ok) state.user = (await res.json()).user;
   } catch { /* offline */ }
   window.addEventListener('hashchange', render);
+  // Een tab aantikken waarvan het adres al open staat, laadt het scherm opnieuw.
+  document.querySelectorAll('.tabbar a, #sections a').forEach((a) => a.addEventListener('click', (e) => {
+    if (a.getAttribute('href') === (location.hash || '#/')) {
+      e.preventDefault();
+      render();
+    }
+  }));
   render();
 }
 
