@@ -5,6 +5,7 @@ import {
 } from '../_lib/auth.js';
 import { getPrices, searchTickers } from '../_lib/prices.js';
 import { getHistories } from '../_lib/history.js';
+import { METERS, TARIFF_FIELDS, monthlyOverview } from '../_lib/energy.js';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-^=]{0,19}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -239,6 +240,109 @@ function valueSeries(rows, dates, histories, priceOf, todayStr) {
   });
 }
 
+// ---------- energie ----------
+
+function parseDate(value) {
+  const date = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new HttpError(400, 'Ongeldige datum');
+  return date;
+}
+
+function optionalNumber(value, label) {
+  if (value === '' || value == null) return null;
+  return positiveNumber(value, label, { allowZero: true });
+}
+
+const METER_LABELS = {
+  elec_t1: 'elektriciteit dag', elec_t2: 'elektriciteit nacht', inj_t1: 'injectie dag',
+  inj_t2: 'injectie nacht', gas: 'gas', water: 'water',
+};
+
+function parseReading(body) {
+  const r = { date: parseDate(body.date), note: body.note ? String(body.note).trim().slice(0, 200) : null };
+  for (const k of METERS) r[k] = optionalNumber(body[k], METER_LABELS[k]);
+  if (METERS.every((k) => r[k] == null)) throw new HttpError(400, 'Vul minstens één meterstand in');
+  return r;
+}
+
+function parseTariff(body) {
+  const t = { valid_from: parseDate(body.valid_from) };
+  for (const k of TARIFF_FIELDS) t[k] = optionalNumber(body[k], k) ?? 0;
+  return t;
+}
+
+const readingOut = (r) => ({ id: r.id, date: r.reading_date, note: r.note, ...Object.fromEntries(METERS.map((k) => [k, r[k]])) });
+
+async function energyRoute(method, id, kind, request, db, user) {
+  if (kind === 'monthly' && method === 'GET') {
+    const [{ results: readings }, { results: tariffs }] = await Promise.all([
+      db.prepare('SELECT * FROM meter_readings WHERE user_id = ? ORDER BY reading_date').bind(user.id).all(),
+      db.prepare('SELECT * FROM energy_tariffs WHERE user_id = ?').bind(user.id).all(),
+    ]);
+    return json({ months: monthlyOverview(readings, tariffs), hasTariff: tariffs.length > 0, readings: readings.length });
+  }
+
+  if (kind === 'readings') {
+    if (!id && method === 'GET') {
+      const { results } = await db.prepare('SELECT * FROM meter_readings WHERE user_id = ? ORDER BY reading_date DESC, id DESC').bind(user.id).all();
+      return json({ readings: results.map(readingOut) });
+    }
+    if (!id && method === 'POST') {
+      const r = parseReading(await readJson(request));
+      const row = await db.prepare(
+        `INSERT INTO meter_readings (user_id, reading_date, ${METERS.join(', ')}, note)
+         VALUES (?, ?, ${METERS.map(() => '?').join(', ')}, ?) RETURNING *`,
+      ).bind(user.id, r.date, ...METERS.map((k) => r[k]), r.note).first();
+      return json({ reading: readingOut(row) }, 201);
+    }
+    if (id && method === 'PUT') {
+      const r = parseReading(await readJson(request));
+      const row = await db.prepare(
+        `UPDATE meter_readings SET reading_date = ?, ${METERS.map((k) => `${k} = ?`).join(', ')}, note = ?
+         WHERE id = ? AND user_id = ? RETURNING *`,
+      ).bind(r.date, ...METERS.map((k) => r[k]), r.note, id, user.id).first();
+      if (!row) throw new HttpError(404, 'Meterstand niet gevonden');
+      return json({ reading: readingOut(row) });
+    }
+    if (id && method === 'DELETE') {
+      const res = await db.prepare('DELETE FROM meter_readings WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+      if (!res.meta.changes) throw new HttpError(404, 'Meterstand niet gevonden');
+      return json({ ok: true });
+    }
+  }
+
+  if (kind === 'tariffs') {
+    if (!id && method === 'GET') {
+      const { results } = await db.prepare('SELECT * FROM energy_tariffs WHERE user_id = ? ORDER BY valid_from DESC').bind(user.id).all();
+      return json({ tariffs: results.map(({ user_id, ...t }) => t) });
+    }
+    if (!id && method === 'POST') {
+      const t = parseTariff(await readJson(request));
+      const row = await db.prepare(
+        `INSERT INTO energy_tariffs (user_id, valid_from, ${TARIFF_FIELDS.join(', ')})
+         VALUES (?, ?, ${TARIFF_FIELDS.map(() => '?').join(', ')}) RETURNING *`,
+      ).bind(user.id, t.valid_from, ...TARIFF_FIELDS.map((k) => t[k])).first();
+      return json({ tariff: row }, 201);
+    }
+    if (id && method === 'PUT') {
+      const t = parseTariff(await readJson(request));
+      const row = await db.prepare(
+        `UPDATE energy_tariffs SET valid_from = ?, ${TARIFF_FIELDS.map((k) => `${k} = ?`).join(', ')}
+         WHERE id = ? AND user_id = ? RETURNING *`,
+      ).bind(t.valid_from, ...TARIFF_FIELDS.map((k) => t[k]), id, user.id).first();
+      if (!row) throw new HttpError(404, 'Tarief niet gevonden');
+      return json({ tariff: row });
+    }
+    if (id && method === 'DELETE') {
+      const res = await db.prepare('DELETE FROM energy_tariffs WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+      if (!res.meta.changes) throw new HttpError(404, 'Tarief niet gevonden');
+      return json({ ok: true });
+    }
+  }
+
+  throw new HttpError(404, 'Niet gevonden');
+}
+
 // ---------- routes ----------
 
 async function route(method, parts, request, env, url) {
@@ -311,6 +415,12 @@ async function route(method, parts, request, env, url) {
       ]);
       return json({ ok: true }, 200, { 'set-cookie': await createSession(db, user.id) });
     }
+  }
+
+  if (a === 'energy') {
+    const id = parts[2] != null ? Number(parts[2]) : null;
+    if (id != null && !Number.isInteger(id)) throw new HttpError(404, 'Niet gevonden');
+    return energyRoute(method, id, b, request, db, user);
   }
 
   if (a === 'portfolio' && method === 'GET') {
