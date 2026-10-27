@@ -480,6 +480,27 @@ async function route(method, parts, request, env, url) {
     return json({ ticker, ...q });
   }
 
+  // Koersgrafiek: 5 jaar dagkoersen + huidige koers + eigen aankopen van deze ticker.
+  if (a === 'chart' && b && method === 'GET') {
+    const ticker = normTicker(decodeURIComponent(b));
+    const from = isoDay(Date.now() - 5 * 365.25 * DAY_MS);
+    const [histories, priceOf, { results }] = await Promise.all([
+      getHistories(db, { [ticker]: from }),
+      loadPricing(db, user, [ticker]),
+      db.prepare('SELECT purchase_date, price, quantity, owner FROM purchases WHERE user_id = ? AND ticker = ? ORDER BY purchase_date')
+        .bind(user.id, ticker).all(),
+    ]);
+    const q = priceOf(ticker);
+    return json({
+      ticker,
+      closes: histories[ticker] || [],
+      price: q.price,
+      priceSource: q.source,
+      priceUpdatedAt: q.updatedAt,
+      purchases: results.map((r) => ({ date: r.purchase_date, price: r.price, quantity: r.quantity, owner: r.owner })),
+    });
+  }
+
   if (a === 'search' && method === 'GET') {
     const q = (url.searchParams.get('q') || '').trim();
     if (q.length < 2) return json({ results: [] });
