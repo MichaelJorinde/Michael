@@ -470,18 +470,22 @@ function priceSignals(data, avgPrice) {
   const vsMa200 = last.ma200 ? last.c / last.ma200 - 1 : null;
   const vsAvg = avgPrice ? last.c / avgPrice - 1 : null;
 
+  // Vier niveaus, van uitstekend (blauw) tot relatief hoog (rood).
+  const under = `${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar`;
   let verdict;
-  if ((vsMa200 != null && vsMa200 < 0) || fromHigh <= -0.1) {
-    verdict = { level: 'low', title: 'Relatief laag', text: `De koers ligt ${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar${vsMa200 != null && vsMa200 < 0 ? ' en onder het 200-daags gemiddelde' : ''}. Historisch waren zulke momenten gunstig om bij te kopen, al is dat geen garantie.` };
-  } else if (rangePos >= 0.9 && (vsMa200 == null || vsMa200 > 0.05)) {
-    verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht soms op een dip; wie maandelijks inlegt, gaat gewoon door.' };
+  if (fromHigh <= -0.15 || (vsMa200 != null && vsMa200 <= -0.05)) {
+    verdict = { level: 'excellent', title: 'Uitstekend om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 < 0 ? ` en ${pct(-vsMa200).replace('+', '')} onder het 200-daags gemiddelde` : ''}. Zo'n diepe dip komt niet vaak voor; historisch waren dit sterke instapmomenten, al is dat geen garantie.` };
+  } else if (fromHigh <= -0.08 || (vsMa200 != null && vsMa200 <= -0.02)) {
+    verdict = { level: 'good', title: 'Goed moment om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 <= -0.02 ? ' en onder het 200-daags gemiddelde' : ''}. Een gunstig moment om extra in te leggen.` };
+  } else if (rangePos >= 0.85 && (vsMa200 == null || vsMa200 > 0.03)) {
+    verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht op een dip; wie maandelijks inlegt, gaat gewoon door.' };
   } else {
-    verdict = { level: 'mid', title: 'Gemiddeld', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde.' };
+    verdict = { level: 'fair', title: 'Redelijk goed', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde. Een gewoon moment voor je vaste inleg.' };
   }
   return { closes, last, year, hi, lo, fromHigh, rangePos, vsMa200, vsAvg, verdict };
 }
 
-const VERDICT_ICON = { low: '▼', mid: '●', high: '▲' };
+const VERDICT_ICON = { excellent: '▼▼', good: '▼', fair: '●', high: '▲' };
 const verdictBadge = (v) => `<span class="vbadge vbadge-${v.level}"><span aria-hidden="true">${VERDICT_ICON[v.level]}</span> ${esc(v.title)}</span>`;
 
 // Mini-grafiek (laatste jaar) met 200-daags gemiddelde en gemiddelde aankoopprijs.
