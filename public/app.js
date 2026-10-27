@@ -987,7 +987,7 @@ function viewSettings() {
   });
 }
 
-const priv = privateViews({ app, api, esc, toast, setChrome });
+const priv = privateViews({ app, api, esc, money, num, toast, setChrome });
 
 function lockPrivate() {
   fetch('/api/private/lock', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
@@ -1022,6 +1022,7 @@ async function render() {
         switch (parts[1]) {
           case 'pin': return await priv.changePin();
           case 'lock': return await priv.lockNow();
+          case 'import': return await priv.importView();
           default: return await priv.overview();
         }
       case 'energy':

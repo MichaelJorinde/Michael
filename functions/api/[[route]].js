@@ -7,6 +7,7 @@ import { getPrices, searchTickers } from '../_lib/prices.js';
 import { getHistories } from '../_lib/history.js';
 import { USAGE_FIELDS, TARIFF_FIELDS, monthlyOverview } from '../_lib/energy.js';
 import { privateRoute } from '../_lib/private.js';
+import { financeRoute } from '../_lib/finance.js';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-^=]{0,19}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -429,6 +430,7 @@ async function route(method, parts, request, env, url) {
 
   if (a === 'energy') return energyRoute(method, parts[2] ?? null, b, request, db, user);
 
+  if (a === 'private' && b === 'tx') return financeRoute(method, parts[2] ?? null, request, db, user);
   if (a === 'private') return privateRoute(method, b, request, db, user);
 
   if (a === 'portfolio' && method === 'GET') {
