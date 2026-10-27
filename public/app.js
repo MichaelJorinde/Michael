@@ -1,11 +1,24 @@
 // ETF Tracker — single-page app zonder build-stap.
+import { lineChart, barChart, legend } from './charts.js';
+
 const app = document.getElementById('app');
 const tabbar = document.getElementById('tabbar');
 const topbarUser = document.getElementById('topbar-user');
 const toastEl = document.getElementById('toast');
 
-const state = { user: null, config: null };
-const COLORS = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#db2777', '#059669', '#64748b', '#dc2626', '#0891b2', '#65a30d'];
+const state = { user: null, config: null, owner: null };
+// Vaste volgorde van grafiekkleuren (CSS-variabelen, met donkere variant)
+const COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `var(--c${i})`);
+const OTHER_COLOR = 'var(--muted)';
+
+try { state.owner = sessionStorage.getItem('owner') || null; } catch { /* privémodus */ }
+function setOwner(owner) {
+  state.owner = owner || null;
+  try {
+    if (state.owner) sessionStorage.setItem('owner', state.owner); else sessionStorage.removeItem('owner');
+  } catch { /* privémodus */ }
+}
+const ownerQuery = (prefix = '?') => (state.owner ? `${prefix}owner=${encodeURIComponent(state.owner)}` : '');
 
 // ---------- helpers ----------
 
@@ -178,14 +191,53 @@ function totalsCard(t) {
 }
 
 function allocationCard(positions) {
-  const items = positions.map((p, i) => ({ p, w: p.value ?? p.invested, c: COLORS[i % COLORS.length] }));
+  let items = positions.map((p, i) => ({ label: p.ticker, w: p.value ?? p.invested, c: COLORS[i] }));
+  if (items.length > COLORS.length) {
+    const rest = items.slice(COLORS.length - 1);
+    items = items.slice(0, COLORS.length - 1).concat({ label: 'Overig', w: rest.reduce((s, x) => s + x.w, 0), c: OTHER_COLOR });
+  }
   const sum = items.reduce((s, x) => s + x.w, 0);
   if (positions.length < 2 || !sum) return '';
   return `
     <section class="card">
       <h2>Verdeling</h2>
       <div class="alloc" style="margin-top:12px">${items.map((x) => `<span style="width:${(x.w / sum) * 100}%;background:${x.c}"></span>`).join('')}</div>
-      <div class="legend">${items.map((x) => `<span><i style="background:${x.c}"></i>${esc(x.p.ticker)} ${num((x.w / sum) * 100, 1)}%</span>`).join('')}</div>
+      <div class="legend">${items.map((x) => `<span><i style="background:${x.c}"></i>${esc(x.label)} ${num((x.w / sum) * 100, 1)}%</span>`).join('')}</div>
+    </section>`;
+}
+
+function ownerChips(owners) {
+  if (owners.length < 2) return '';
+  const names = [null, ...owners.map((o) => o.owner)];
+  return `<div class="chips" role="tablist">${names.map((n) => `
+    <button type="button" class="chip ${n === state.owner ? 'active' : ''}" data-owner="${esc(n ?? '')}">${esc(n ?? 'Iedereen')}</button>`).join('')}</div>`;
+}
+
+function bindOwnerChips(rerender) {
+  app.querySelectorAll('.chip[data-owner]').forEach((b) => b.addEventListener('click', () => {
+    setOwner(b.dataset.owner);
+    rerender();
+  }));
+}
+
+function personsCard(owners) {
+  if (owners.length < 2 || state.owner) return '';
+  return `
+    <section class="card">
+      <h2>Per persoon</h2>
+      ${owners.map((o) => o.totals.map((t) => `
+        <a class="person" href="#/" data-owner="${esc(o.owner)}">
+          <div class="grow">
+            <b>${esc(o.owner)}</b>
+            <div class="muted small">${esc(o.tickers.join(', '))}</div>
+            <div class="muted small num">Geïnvesteerd ${money(t.invested, t.currency)}</div>
+          </div>
+          <div class="r">
+            <div class="num"><b>${money(t.value, t.currency)}</b></div>
+            <span class="pill num ${cls(t.gain)}">${pct(t.gainPct)}</span>
+            <div class="small num ${cls(t.gain)}">${signed(t.gain, t.currency)}</div>
+          </div>
+        </a>`).join('')).join('')}
     </section>`;
 }
 
@@ -206,6 +258,7 @@ function positionCard(p) {
         <span>${num(p.quantity)} × ${money(p.price, p.currency)}${p.priceSource === 'manual' ? ' ✎' : ''}</span>
         <span class="${cls(p.gain)}">${signed(p.gain, p.currency)}</span>
       </div>
+      ${p.owners.length > 1 || (!state.owner && state.ownerCount > 1) ? `<div class="tags">${p.owners.map((o) => `<span class="owner-tag">${esc(o.owner)} · ${num(o.quantity)}</span>`).join(' ')}</div>` : ''}
       ${p.priceError && p.price == null ? `<div class="warn">Geen koers: ${esc(p.priceError)}</div>` : ''}
       ${p.priceCurrency && p.priceCurrency !== p.currency ? `<div class="warn">Let op: koers in ${esc(p.priceCurrency)}, aankopen in ${esc(p.currency)}.</div>` : ''}
     </a>`;
@@ -214,7 +267,12 @@ function positionCard(p) {
 async function viewDashboard(refresh = false) {
   setChrome('dashboard');
   if (!refresh) app.innerHTML = '<div class="loading">Portefeuille laden…</div>';
-  const data = await api(`portfolio${refresh ? '?refresh=1' : ''}`);
+  let data = await api(`portfolio?${refresh ? 'refresh=1' : ''}${ownerQuery('&')}`);
+  if (state.owner && !data.owners.some((o) => o.owner === state.owner)) {
+    setOwner(null);
+    data = await api('portfolio');
+  }
+  state.ownerCount = data.owners.length;
   if (!data.positions.length) {
     app.innerHTML = `
       <section class="card empty stack">
@@ -227,6 +285,7 @@ async function viewDashboard(refresh = false) {
   const latest = Math.max(...data.positions.map((p) => p.priceUpdatedAt || 0));
   app.innerHTML = `
     <div class="stack">
+      ${ownerChips(data.owners)}
       ${data.totals.map(totalsCard).join('')}
       <div class="row between">
         <span class="muted small">Koersen bijgewerkt ${esc(timeAgo(latest))}</span>
@@ -234,10 +293,17 @@ async function viewDashboard(refresh = false) {
           <svg width="16" height="16" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Vernieuwen</button>
       </div>
+      ${personsCard(data.owners)}
       ${allocationCard(data.positions)}
-      <h2>Posities</h2>
+      <h2>Posities${state.owner ? ` van ${esc(state.owner)}` : ''}</h2>
       <div>${data.positions.map(positionCard).join('')}</div>
     </div>`;
+  bindOwnerChips(() => viewDashboard());
+  app.querySelectorAll('.person[data-owner]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    setOwner(a.dataset.owner);
+    viewDashboard();
+  }));
   document.getElementById('refresh').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -259,7 +325,8 @@ function purchaseRow(p, showTicker = true) {
   return `
     <li class="purchase">
       <div class="grow">
-        <div><b>${showTicker ? esc(p.ticker) : dateFmt(p.date)}</b>${showTicker ? ` <span class="date">${dateFmt(p.date)}</span>` : ''}</div>
+        <div><b>${showTicker ? esc(p.ticker) : dateFmt(p.date)}</b>${showTicker ? ` <span class="date">${dateFmt(p.date)}</span>` : ''}
+          ${p.owner ? `<span class="owner-tag">${esc(p.owner)}</span>` : ''}</div>
         <div class="muted small num">${num(p.quantity)} × ${money(p.price, p.currency)}${p.fees ? ` + ${money(p.fees, p.currency)} kosten` : ''}</div>
         ${p.note ? `<div class="muted small">${esc(p.note)}</div>` : ''}
       </div>
@@ -339,10 +406,12 @@ async function viewPosition(ticker) {
 
 async function viewPurchaseForm(id, presetTicker) {
   setChrome(id ? 'purchases' : 'add');
-  let p = { ticker: presetTicker || '', name: '', date: today(), quantity: '', price: '', fees: '', currency: 'EUR', note: '' };
+  let p = { ticker: presetTicker || '', name: '', date: today(), quantity: '', price: '', fees: '', currency: 'EUR', note: '', owner: '' };
+  app.innerHTML = '<div class="loading">Laden…</div>';
+  const { purchases } = await api('purchases');
+  const knownOwners = [...new Set([state.user.name, ...purchases.map((x) => x.owner).filter(Boolean)])];
+  p.owner = state.owner || purchases[0]?.owner || state.user.name;
   if (id) {
-    app.innerHTML = '<div class="loading">Laden…</div>';
-    const { purchases } = await api('purchases');
     const found = purchases.find((x) => x.id === Number(id));
     if (!found) {
       app.innerHTML = '<div class="empty">Aankoop niet gevonden.</div>';
@@ -350,7 +419,6 @@ async function viewPurchaseForm(id, presetTicker) {
     }
     p = found;
   } else if (presetTicker) {
-    const { purchases } = await api('purchases').catch(() => ({ purchases: [] }));
     const prev = purchases.find((x) => x.ticker === presetTicker);
     if (prev) Object.assign(p, { name: prev.name || '', currency: prev.currency });
   }
@@ -367,6 +435,11 @@ async function viewPurchaseForm(id, presetTicker) {
           <p id="tname" class="hint">${esc(p.name || 'Gebruik de Yahoo Finance-ticker, bv. IWDA.AS (Amsterdam) of VWCE.DE (Xetra).')}</p>
         </div>
         <input type="hidden" name="name" value="${esc(p.name || '')}">
+        <div class="field" style="margin-top:14px"><label for="owner">Voor wie?</label>
+          <input id="owner" name="owner" list="owners" value="${esc(p.owner || '')}" maxlength="40" autocomplete="off" required>
+          <datalist id="owners">${knownOwners.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>
+          <div class="chips" style="margin-top:8px">${knownOwners.map((o) => `<button type="button" class="chip" data-pick="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+          <p class="hint">Bv. je eigen naam of die van een kind. Typ een nieuwe naam om iemand toe te voegen.</p></div>
         <div class="field-row">
           <div class="field"><label for="date">Datum</label>
             <input id="date" name="date" type="date" value="${esc(p.date)}" max="${today()}" required></div>
@@ -395,6 +468,10 @@ async function viewPurchaseForm(id, presetTicker) {
 
   const f = document.getElementById('f');
   const sugg = document.getElementById('sugg');
+  const markOwner = () => f.querySelectorAll('.chip[data-pick]').forEach((c) => c.classList.toggle('active', c.dataset.pick === f.owner.value.trim()));
+  f.querySelectorAll('.chip[data-pick]').forEach((c) => c.addEventListener('click', () => { f.owner.value = c.dataset.pick; markOwner(); }));
+  f.owner.addEventListener('input', markOwner);
+  markOwner();
   const tname = document.getElementById('tname');
 
   const updateTotal = () => {
@@ -457,7 +534,7 @@ async function viewPurchaseForm(id, presetTicker) {
       const body = {
         ticker: f.ticker.value, name: f.name.value || null, date: f.date.value, currency: f.currency.value,
         quantity: parseNum(f.quantity.value), price: parseNum(f.price.value),
-        fees: f.fees.value ? parseNum(f.fees.value) : 0, note: f.note.value,
+        fees: f.fees.value ? parseNum(f.fees.value) : 0, note: f.note.value, owner: f.owner.value,
       };
       if (id) {
         await api(`purchases/${id}`, { method: 'PUT', body });
@@ -479,6 +556,154 @@ async function viewPurchaseForm(id, presetTicker) {
       location.hash = '#/purchases';
     } catch (err) { toast(err.message, true); }
   });
+}
+
+// ---------- views: grafieken ----------
+
+const shortDate = (d, long) => new Date(`${d}T00:00:00`).toLocaleDateString('nl-BE', long ? { day: 'numeric', month: 'short', year: 'numeric' } : { month: 'short', year: '2-digit' });
+const compact = (cur) => (v) => new Intl.NumberFormat('nl-BE', { style: 'currency', currency: cur, notation: 'compact', maximumFractionDigits: 1 }).format(v);
+
+async function viewCharts() {
+  setChrome('charts');
+  app.innerHTML = '<div class="loading">Grafieken laden…</div>';
+  let [pf, hist] = await Promise.all([api(`portfolio${ownerQuery()}`), api(`history${ownerQuery()}`)]);
+  if (state.owner && !pf.owners.some((o) => o.owner === state.owner)) {
+    setOwner(null);
+    [pf, hist] = await Promise.all([api('portfolio'), api('history')]);
+  }
+  if (!hist.points.length) {
+    app.innerHTML = '<section class="card empty stack"><p>Voeg eerst een aankoop toe om grafieken te zien.</p><a class="btn" href="#/add">Aankoop toevoegen</a></section>';
+    return;
+  }
+  const cur = hist.currency;
+  const pts = hist.points.map((p) => ({ ...p, gain: Math.round((p.value - p.invested) * 100) / 100 }));
+  const last = pts[pts.length - 1];
+  const fmt = (v) => money(v, cur);
+  const valueSeries = [
+    { key: 'value', label: 'Waarde', color: 'var(--c1)' },
+    { key: 'invested', label: 'Geïnvesteerd', color: 'var(--c2)' },
+  ];
+  const positions = pf.positions.filter((p) => p.gain != null && p.currency === cur);
+  const owners = pf.owners.map((o) => ({ owner: o.owner, t: o.totals.find((t) => t.currency === cur) })).filter((o) => o.t && o.t.value != null);
+
+  // Tijdlijn per persoon: kleur volgt de persoon (vaste volgorde, max. 8 lijnen)
+  const ownerIndex = Object.fromEntries(pf.owners.map((o, i) => [o.owner, i]));
+  const personLines = (hist.owners || []).slice(0, COLORS.length).map((o) => ({
+    ...o, key: `p${ownerIndex[o.owner]}`, color: COLORS[ownerIndex[o.owner] % COLORS.length],
+  }));
+  const PP_METRICS = [
+    { key: 'value', label: 'Waarde' },
+    { key: 'invested', label: 'Inleg' },
+    { key: 'gain', label: 'Winst' },
+  ];
+  let ppMetric = viewCharts.metric || 'value';
+  const ppPoints = (metric) => pts.map((p, i) => ({
+    d: p.d,
+    ...Object.fromEntries(personLines.map((o) => {
+      const q = o.points[i];
+      return [o.key, metric === 'gain' ? Math.round((q.value - q.invested) * 100) / 100 : q[metric]];
+    })),
+  }));
+
+  const table = (head, rows) => `
+    <details class="table-view"><summary>Toon als tabel</summary>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    </details>`;
+
+  app.innerHTML = `
+    <div class="stack">
+      <h1>Grafieken${state.owner ? ` · ${esc(state.owner)}` : ''}</h1>
+      ${ownerChips(pf.owners)}
+
+      <section class="card chart-card">
+        <div class="chart-head"><h2>Waarde en inleg</h2><span class="muted small">sinds ${esc(shortDate(pts[0].d, true))}</span></div>
+        ${legend(valueSeries.map((s) => ({ ...s, label: `${s.label} ${fmt(last[s.key])}` })))}
+        <div id="ch-value"></div>
+        ${table(['Datum', 'Waarde', 'Geïnvesteerd'], pts.slice().reverse().map((p) => [shortDate(p.d, true), fmt(p.value), fmt(p.invested)]))}
+      </section>
+
+      <section class="card chart-card">
+        <div class="chart-head"><h2>Winst / verlies</h2><span class="num ${cls(last.gain)}"><b>${signed(last.gain, cur)}</b></span></div>
+        <div id="ch-gain"></div>
+        ${table(['Datum', 'Winst / verlies'], pts.slice().reverse().map((p) => [shortDate(p.d, true), signed(p.gain, cur)]))}
+      </section>
+
+      ${positions.length ? `
+      <section class="card chart-card">
+        <h2>Winst per ETF</h2>
+        ${barChart({
+          items: positions.map((p) => ({ label: p.ticker, sub: pct(p.gainPct), values: { gain: p.gain } })),
+          series: [{ key: 'gain', label: 'Winst / verlies', color: 'var(--c1)', negColor: 'var(--c8)' }],
+          format: (v) => signed(v, cur),
+        })}
+      </section>` : ''}
+
+      ${personLines.length ? `
+      <section class="card chart-card">
+        <div class="chart-head"><h2>Per persoon doorheen de tijd</h2></div>
+        <div class="chips" style="margin-top:8px" id="pp-metric">
+          ${PP_METRICS.map((mt) => `<button type="button" class="chip ${mt.key === ppMetric ? 'active' : ''}" data-metric="${mt.key}">${mt.label}</button>`).join('')}
+        </div>
+        <div id="pp-legend"></div>
+        <div id="ch-persons"></div>
+        <div id="pp-table"></div>
+      </section>` : ''}
+
+      ${owners.length > 1 && !state.owner ? `
+      <section class="card chart-card">
+        <h2>Winst per persoon</h2>
+        ${barChart({
+          items: owners.map((o) => ({ label: o.owner, sub: pct(o.t.gainPct), values: { gain: o.t.gain } })),
+          series: [{ key: 'gain', label: 'Winst / verlies', color: 'var(--c1)', negColor: 'var(--c8)' }],
+          format: (v) => signed(v, cur),
+        })}
+      </section>
+
+      <section class="card chart-card">
+        <h2>Waarde en inleg per persoon</h2>
+        ${legend(valueSeries)}
+        ${barChart({
+          items: owners.map((o) => ({ label: o.owner, sub: pct(o.t.gainPct), values: { value: o.t.value, invested: o.t.invested } })),
+          series: valueSeries,
+          format: fmt,
+        })}
+      </section>` : ''}
+
+      ${hist.skipped ? `<p class="muted small">${hist.skipped} aankoop/aankopen in een andere munt dan ${esc(cur)} zitten niet in de tijdlijn.</p>` : ''}
+      <p class="muted small">De tijdlijn gebruikt historische slotkoersen; de laatste dag gebruikt de huidige koers.</p>
+    </div>`;
+
+  bindOwnerChips(() => viewCharts());
+  const draw = () => {
+    lineChart(document.getElementById('ch-value'), { points: pts, series: valueSeries, yFormat: fmt, yTick: compact(cur), dateFormat: shortDate });
+    lineChart(document.getElementById('ch-gain'), {
+      points: pts, series: [{ key: 'gain', label: 'Winst / verlies', color: 'var(--c1)', area: true }],
+      yFormat: (v) => signed(v, cur), yTick: compact(cur), dateFormat: shortDate, zero: true,
+    });
+  };
+  const drawPersons = () => {
+    if (!personLines.length) return;
+    const data = ppPoints(ppMetric);
+    const f = ppMetric === 'gain' ? (v) => signed(v, cur) : fmt;
+    const last2 = data[data.length - 1];
+    document.getElementById('pp-legend').innerHTML = legend(personLines.map((o) => ({ color: o.color, label: `${o.owner} ${f(last2[o.key])}` })));
+    lineChart(document.getElementById('ch-persons'), {
+      points: data, series: personLines.map((o) => ({ key: o.key, label: o.owner, color: o.color })),
+      yFormat: f, yTick: compact(cur), dateFormat: shortDate, zero: ppMetric === 'gain',
+    });
+    document.getElementById('pp-table').innerHTML = table(['Datum', ...personLines.map((o) => o.owner)],
+      data.slice().reverse().map((p) => [shortDate(p.d, true), ...personLines.map((o) => f(p[o.key]))]));
+  };
+  app.querySelectorAll('#pp-metric .chip').forEach((b) => b.addEventListener('click', () => {
+    ppMetric = viewCharts.metric = b.dataset.metric;
+    app.querySelectorAll('#pp-metric .chip').forEach((c) => c.classList.toggle('active', c === b));
+    drawPersons();
+  }));
+  draw();
+  drawPersons();
+  clearTimeout(viewCharts.t);
+  window.onresize = () => { clearTimeout(viewCharts.t); viewCharts.t = setTimeout(() => { if (document.getElementById('ch-value')) { draw(); drawPersons(); } }, 150); };
 }
 
 // ---------- views: historiek ----------
@@ -568,6 +793,7 @@ async function render() {
       case 'add': return await viewPurchaseForm(null, params.get('ticker'));
       case 'edit': return await viewPurchaseForm(parts[1]);
       case 'purchases': return await viewPurchases();
+      case 'charts': return await viewCharts();
       case 'position': return await viewPosition(decodeURIComponent(parts[1] || ''));
       case 'settings': return viewSettings();
       default: return await viewDashboard();

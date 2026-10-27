@@ -13,6 +13,8 @@ Koersen komen van Yahoo Finance (gratis, geen API-sleutel) en worden 15 min geca
 - Registratie van extra accounts (optioneel met uitnodigingscode, of volledig uit te schakelen)
 - Aankopen toevoegen, bewerken en verwijderen, met ticker-zoekfunctie en de knop "huidige koers gebruiken"
 - Overzicht met huidige waarde, geïnvesteerd bedrag, winst/verlies (€ en %) en verdeling per ETF
+- **Voor wie?** Elke aankoop krijgt een naam (jezelf, een kind, …), met een uitsplitsing en filter per persoon
+- **Grafieken:** waarde en inleg doorheen de tijd, winst/verlies, winst per ETF en per persoon
 - Detail per positie: aantal stuks, gemiddelde aankoopprijs, kosten, en een manuele koers als terugvaloptie
 - Mobile-first ontwerp, donkere modus, toe te voegen aan het beginscherm (PWA)
 
@@ -28,7 +30,7 @@ Koersen komen van Yahoo Finance (gratis, geen API-sleutel) en worden 15 min geca
    - `CLOUDFLARE_API_TOKEN`: het token uit stap 2
    - `CLOUDFLARE_ACCOUNT_ID`: staat in de URL van het dashboard (`dash.cloudflare.com/<account-id>`)
 4. **Deployen:** merge naar `main` (of start de workflow *Deploy naar Cloudflare*
-   handmatig via de tab *Actions*). De site komt op `https://etf-tracker.pages.dev`.
+   handmatig via de tab *Actions*). De site staat op **https://etf-tracker-7tv.pages.dev**.
 5. **Registraties afschermen (aangeraden):** voeg in het Pages-project bij *Settings →
    Variables and Secrets* een geheim `REGISTRATION_CODE` toe. Enkel wie die code kent,
    kan dan een account maken. Of zet `REGISTRATION_OPEN = "false"` in `wrangler.toml`
@@ -54,7 +56,8 @@ npm run dev        # http://localhost:8788 met een lokale D1-database
 |---|---|---|
 | POST | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Accountbeheer |
 | GET / POST | `/api/me`, `/api/me/password` | Profiel / wachtwoord wijzigen |
-| GET | `/api/portfolio[?refresh=1]` | Posities en totalen |
+| GET | `/api/portfolio[?refresh=1&owner=]` | Posities, totalen en uitsplitsing per persoon |
+| GET | `/api/history[?owner=]` | Waarde en inleg doorheen de tijd |
 | GET / POST / PUT / DELETE | `/api/purchases[/:id]` | Aankopen |
 | GET | `/api/search?q=`, `/api/quote/:ticker` | Ticker zoeken / koers opvragen |
 | PUT / DELETE | `/api/prices/:ticker` | Manuele koers instellen of wissen |
