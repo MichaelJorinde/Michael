@@ -586,6 +586,25 @@ async function viewCharts() {
   const positions = pf.positions.filter((p) => p.gain != null && p.currency === cur);
   const owners = pf.owners.map((o) => ({ owner: o.owner, t: o.totals.find((t) => t.currency === cur) })).filter((o) => o.t && o.t.value != null);
 
+  // Tijdlijn per persoon: kleur volgt de persoon (vaste volgorde, max. 8 lijnen)
+  const ownerIndex = Object.fromEntries(pf.owners.map((o, i) => [o.owner, i]));
+  const personLines = (hist.owners || []).slice(0, COLORS.length).map((o) => ({
+    ...o, key: `p${ownerIndex[o.owner]}`, color: COLORS[ownerIndex[o.owner] % COLORS.length],
+  }));
+  const PP_METRICS = [
+    { key: 'value', label: 'Waarde' },
+    { key: 'invested', label: 'Inleg' },
+    { key: 'gain', label: 'Winst' },
+  ];
+  let ppMetric = viewCharts.metric || 'value';
+  const ppPoints = (metric) => pts.map((p, i) => ({
+    d: p.d,
+    ...Object.fromEntries(personLines.map((o) => {
+      const q = o.points[i];
+      return [o.key, metric === 'gain' ? Math.round((q.value - q.invested) * 100) / 100 : q[metric]];
+    })),
+  }));
+
   const table = (head, rows) => `
     <details class="table-view"><summary>Toon als tabel</summary>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
@@ -620,9 +639,29 @@ async function viewCharts() {
         })}
       </section>` : ''}
 
+      ${personLines.length ? `
+      <section class="card chart-card">
+        <div class="chart-head"><h2>Per persoon doorheen de tijd</h2></div>
+        <div class="chips" style="margin-top:8px" id="pp-metric">
+          ${PP_METRICS.map((mt) => `<button type="button" class="chip ${mt.key === ppMetric ? 'active' : ''}" data-metric="${mt.key}">${mt.label}</button>`).join('')}
+        </div>
+        <div id="pp-legend"></div>
+        <div id="ch-persons"></div>
+        <div id="pp-table"></div>
+      </section>` : ''}
+
       ${owners.length > 1 && !state.owner ? `
       <section class="card chart-card">
-        <h2>Per persoon</h2>
+        <h2>Winst per persoon</h2>
+        ${barChart({
+          items: owners.map((o) => ({ label: o.owner, sub: pct(o.t.gainPct), values: { gain: o.t.gain } })),
+          series: [{ key: 'gain', label: 'Winst / verlies', color: 'var(--c1)', negColor: 'var(--c8)' }],
+          format: (v) => signed(v, cur),
+        })}
+      </section>
+
+      <section class="card chart-card">
+        <h2>Waarde en inleg per persoon</h2>
         ${legend(valueSeries)}
         ${barChart({
           items: owners.map((o) => ({ label: o.owner, sub: pct(o.t.gainPct), values: { value: o.t.value, invested: o.t.invested } })),
@@ -643,9 +682,28 @@ async function viewCharts() {
       yFormat: (v) => signed(v, cur), yTick: compact(cur), dateFormat: shortDate, zero: true,
     });
   };
+  const drawPersons = () => {
+    if (!personLines.length) return;
+    const data = ppPoints(ppMetric);
+    const f = ppMetric === 'gain' ? (v) => signed(v, cur) : fmt;
+    const last2 = data[data.length - 1];
+    document.getElementById('pp-legend').innerHTML = legend(personLines.map((o) => ({ color: o.color, label: `${o.owner} ${f(last2[o.key])}` })));
+    lineChart(document.getElementById('ch-persons'), {
+      points: data, series: personLines.map((o) => ({ key: o.key, label: o.owner, color: o.color })),
+      yFormat: f, yTick: compact(cur), dateFormat: shortDate, zero: ppMetric === 'gain',
+    });
+    document.getElementById('pp-table').innerHTML = table(['Datum', ...personLines.map((o) => o.owner)],
+      data.slice().reverse().map((p) => [shortDate(p.d, true), ...personLines.map((o) => f(p[o.key]))]));
+  };
+  app.querySelectorAll('#pp-metric .chip').forEach((b) => b.addEventListener('click', () => {
+    ppMetric = viewCharts.metric = b.dataset.metric;
+    app.querySelectorAll('#pp-metric .chip').forEach((c) => c.classList.toggle('active', c === b));
+    drawPersons();
+  }));
   draw();
+  drawPersons();
   clearTimeout(viewCharts.t);
-  window.onresize = () => { clearTimeout(viewCharts.t); viewCharts.t = setTimeout(() => document.getElementById('ch-value') && draw(), 150); };
+  window.onresize = () => { clearTimeout(viewCharts.t); viewCharts.t = setTimeout(() => { if (document.getElementById('ch-value')) { draw(); drawPersons(); } }, 150); };
 }
 
 // ---------- views: historiek ----------

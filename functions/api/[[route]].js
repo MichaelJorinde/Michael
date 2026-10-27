@@ -175,7 +175,7 @@ async function buildPortfolio(db, user, { force = false, owner = null } = {}) {
 async function buildHistory(db, user, owner) {
   const all = await loadPurchases(db, user);
   let rows = owner ? all.filter((r) => r.owner === owner) : all;
-  if (!rows.length) return { currency: null, points: [], skipped: 0 };
+  if (!rows.length) return { currency: null, points: [], owners: [], skipped: 0 };
 
   // Grafiek in één munt: de munt met het grootste geïnvesteerde bedrag.
   const perCurrency = {};
@@ -198,13 +198,28 @@ async function buildHistory(db, user, owner) {
   for (let t = start; t < end; t += step * DAY_MS) dates.push(isoDay(t));
   dates.push(todayStr);
 
-  // Per ticker: laatste gekende slotkoers op of vóór een datum (anders aankoopprijs).
-  const cursor = Object.fromEntries(tickers.map((t) => [t, { i: 0, last: null }]));
-  let pi = 0;
+  const series = (subset) => valueSeries(subset, dates, histories, priceOf, todayStr);
+  const points = series(rows).map((p, i) => ({ d: dates[i], ...p }));
+
+  // Zonder filter: ook een tijdlijn per persoon (zelfde datums).
+  const ownerNames = owner ? [] : [...new Set(rows.map((r) => r.owner))].sort((a, b) => a.localeCompare(b, 'nl'));
+  const owners = ownerNames.length > 1
+    ? ownerNames.map((name) => ({ owner: name, points: series(rows.filter((r) => r.owner === name)) }))
+    : [];
+
+  return { currency, points, owners, skipped };
+}
+
+// Inleg en waarde per datum voor een (gesorteerde) reeks aankopen.
+// Koers = laatste gekende slotkoers op of vóór de datum, anders de aankoopprijs;
+// op de laatste dag de huidige koers.
+function valueSeries(rows, dates, histories, priceOf, todayStr) {
+  const cursor = {};
   const qty = {};
-  let invested = 0;
   const lastBuyPrice = {};
-  const points = dates.map((d) => {
+  let pi = 0;
+  let invested = 0;
+  return dates.map((d) => {
     while (pi < rows.length && rows[pi].purchase_date <= d) {
       const r = rows[pi++];
       qty[r.ticker] = (qty[r.ticker] || 0) + r.quantity;
@@ -214,16 +229,14 @@ async function buildHistory(db, user, owner) {
     let value = 0;
     for (const t of Object.keys(qty)) {
       const h = histories[t] || [];
-      const c = cursor[t];
+      const c = (cursor[t] ||= { i: 0, last: null });
       while (c.i < h.length && h[c.i][0] <= d) c.last = h[c.i++][1];
       let price = c.last ?? lastBuyPrice[t];
       if (d === todayStr && priceOf(t).price != null) price = priceOf(t).price;
       value += qty[t] * price;
     }
-    return { d, invested: Math.round(invested * 100) / 100, value: Math.round(value * 100) / 100 };
+    return { invested: Math.round(invested * 100) / 100, value: Math.round(value * 100) / 100 };
   });
-
-  return { currency, points, skipped };
 }
 
 // ---------- routes ----------
