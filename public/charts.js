@@ -146,7 +146,7 @@ function barPath(x, y, w, h, roundTop, roundBottom) {
  * Kolomgrafiek (SVG), gestapeld, met negatieve waarden onder de nullijn.
  * labels: ['jan', ...]; rows: [{ [key]: number } | null]; series: [{ key, label, color }]
  */
-export function columnChart(el, { labels, longLabels = labels, rows, series, format, tickFormat, totalLabel = 'Totaal' }) {
+export function columnChart(el, { labels, longLabels = labels, rows, series, format, tickFormat, totalLabel = 'Totaal', refLine = null, faded = [] }) {
   const W = Math.max(el.clientWidth, 260);
   const H = 220;
   const m = { t: 10, r: 4, b: 24, l: 48 };
@@ -161,7 +161,7 @@ export function columnChart(el, { labels, longLabels = labels, rows, series, for
     series.forEach((s) => { const v = r[s.key] ?? 0; if (v > 0) pos += v; else neg += v; });
     return { pos, neg };
   });
-  const ticks = niceTicks(Math.min(0, ...sums.map((s) => s.neg)), Math.max(0, ...sums.map((s) => s.pos), 0.0001));
+  const ticks = niceTicks(Math.min(0, ...sums.map((s) => s.neg)), Math.max(0, ...sums.map((s) => s.pos), refLine ? refLine.value * 1.08 : 0, 0.0001));
   const y0 = ticks[0];
   const y1 = ticks[ticks.length - 1];
   const y = (v) => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
@@ -198,13 +198,15 @@ export function columnChart(el, { labels, longLabels = labels, rows, series, for
         return `<path d="${barPath(x, top, bw, h, false, k === neg.length - 1)}" fill="${s.color}" class="cc-seg"/>`;
       }),
     ].join('');
-    return `<g class="cc-col" data-i="${i}">${segs}</g>`;
+    return `<g class="cc-col${faded[i] ? ' faded' : ''}" data-i="${i}">${segs}</g>`;
   }).join('');
 
   el.classList.add('ch');
   el.innerHTML = `
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map((s) => s.label).join(', '))}">
       ${grid}${xLabels}${cols}
+      ${refLine ? `<line x1="${m.l}" x2="${W - m.r}" y1="${y(refLine.value)}" y2="${y(refLine.value)}" class="cc-ref"/>
+        <text x="${W - m.r}" y="${y(refLine.value) - 5}" text-anchor="end" class="ch-axis cc-ref-label">${esc(refLine.label)}</text>` : ''}
       ${rows.map((r, i) => (r ? `<rect x="${m.l + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent" class="cc-hit" data-i="${i}"/>` : '')).join('')}
     </svg>
     <div class="ch-tip" hidden></div>`;
@@ -216,7 +218,7 @@ export function columnChart(el, { labels, longLabels = labels, rows, series, for
     svg.querySelectorAll('.cc-col').forEach((g) => g.classList.toggle('dim', g.dataset.i !== String(i)));
     const visible = series.filter((s) => r[s.key] != null);
     const total = visible.reduce((a, s) => a + r[s.key], 0);
-    tip.innerHTML = `<div class="ch-tip-d">${esc(longLabels[i])}</div>${visible.map((s) => `
+    tip.innerHTML = `<div class="ch-tip-d">${esc(longLabels[i])}${faded[i] ? ' (schatting)' : ''}</div>${visible.map((s) => `
       <div class="ch-tip-r"><i style="background:${s.color}"></i><span>${esc(s.label)}</span><b>${esc(format(r[s.key]))}</b></div>`).join('')}
       ${visible.length > 1 ? `<div class="ch-tip-r ch-tip-total"><i></i><span>${esc(totalLabel)}</span><b>${esc(format(total))}</b></div>` : ''}`;
     tip.hidden = false;

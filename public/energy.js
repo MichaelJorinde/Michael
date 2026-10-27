@@ -28,7 +28,7 @@ const TARIFF_GROUPS = [
   ] },
 ];
 
-export function energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt }) {
+export function energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt, cls }) {
   const pref = { util: 'total', year: null };
   try { pref.util = sessionStorage.getItem('energy-util') || 'total'; } catch { /* privémodus */ }
 
@@ -44,6 +44,56 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
   const compactNum = (v) => new Intl.NumberFormat('nl-BE', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
   const monthShort = (i) => new Date(2000, i, 1).toLocaleDateString('nl-BE', { month: 'short' }).replace('.', '');
   const monthName = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' });
+  const addMonths = (ym, n) => {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + n, 1));
+    return d.toISOString().slice(0, 7);
+  };
+
+  // Eindafrekening: werkelijke kosten vs. betaalde voorschotten binnen de afrekeningsperiode,
+  // plus een prognose voor de maanden zonder gegevens.
+  function settlement(allMonths, s) {
+    if (!s || !s.advance || !allMonths.length) return null;
+    const covers = s.covers.split(',');
+    const byMonth = Object.fromEntries(allMonths.map((m) => [m.month, m]));
+    const costOf = (m) => {
+      if (!m) return null;
+      const parts = covers.map((k) => m[k]?.cost).filter((c) => c != null);
+      return parts.length ? sum(parts) : null;
+    };
+    const latest = allMonths[allMonths.length - 1].month;
+    let start = s.period_start;
+    while (addMonths(start, 12) <= latest) start = addMonths(start, 12);
+    while (start > latest) start = addMonths(start, -12);
+    const keys = Array.from({ length: 12 }, (_, i) => addMonths(start, i));
+    const actual = keys.filter((k) => costOf(byMonth[k]) != null);
+    if (!actual.length) return null;
+    const avg = sum(actual.map((k) => costOf(byMonth[k]))) / actual.length;
+    // Schatting voor maanden zonder gegevens, in volgorde van voorkeur:
+    // 1. dezelfde maand vorig jaar;
+    // 2. de 'spiegelmaand' in het stookseizoen (okt≈apr, nov≈mrt, dec≈feb, …), meest recente eerst;
+    // 3. het gemiddelde van de gekende maanden.
+    const mirrorOf = (k) => String((((2 - Number(k.slice(5))) % 12) + 12) % 12 || 12).padStart(2, '0');
+    const recentWithMonth = (mm) => allMonths.filter((m) => m.month.slice(5) === mm && costOf(m) != null).pop();
+    const rows = keys.map((k) => {
+      const c = costOf(byMonth[k]);
+      if (c != null) return { month: k, actual: true, cost: c, parts: Object.fromEntries(covers.map((u) => [u, byMonth[k][u]?.cost ?? 0])) };
+      const ly = costOf(byMonth[addMonths(k, -12)]);
+      if (ly != null) return { month: k, actual: false, cost: ly, basis: 'vorig jaar' };
+      const mirror = recentWithMonth(mirrorOf(k));
+      if (mirror) return { month: k, actual: false, cost: costOf(mirror), basis: `zoals ${monthName(mirror.month)}` };
+      return { month: k, actual: false, cost: avg, basis: 'gemiddelde' };
+    });
+    const costSoFar = sum(rows.filter((r) => r.actual).map((r) => r.cost));
+    const paidSoFar = s.advance * actual.length;
+    const projected = sum(rows.map((r) => r.cost));
+    return {
+      start, end: keys[11], covers, advance: s.advance, rows,
+      monthsKnown: actual.length, costSoFar, paidSoFar, balanceNow: paidSoFar - costSoFar,
+      projected, paidTotal: s.advance * 12, balanceEnd: s.advance * 12 - projected,
+    };
+  }
+
   const prevMonth = () => {
     const d = new Date();
     d.setDate(1);
@@ -118,6 +168,35 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       const perUtil = Object.fromEntries(Object.keys(UTIL).map((k) => [k, sum(filled.map((m) => m[k]?.cost))]));
       const costMonths = filled.filter((m) => m.total != null);
       const yearTotal = sum(costMonths.map((m) => m.total));
+      const st = hasTariff ? settlement(data.months, data.settings) : null;
+      const coverLabel = (c) => c.map((k) => UTIL[k].label.toLowerCase()).join(' + ');
+      const verdict = (v) => (v >= 0 ? `≈ ${eur(v)} terug` : `≈ ${eur(-v)} bijbetalen`);
+      const settleSeries = st ? [
+        ...st.covers.map((k) => ({ key: k, label: UTIL[k].label, color: UTIL[k].color })),
+        { key: 'est', label: 'Schatting', color: 'var(--muted)' },
+      ] : [];
+      const settleCard = st ? `
+        <section class="card chart-card">
+          <div class="chart-head"><h2>Eindafrekening</h2><a class="small" href="#/energy/settings">Voorschot ›</a></div>
+          <p class="muted small" style="margin:2px 0 0">${esc(monthName(st.start))} – ${esc(monthName(st.end))} · ${eur(st.advance)}/maand voor ${esc(coverLabel(st.covers))}</p>
+          <div class="big num ${cls(st.balanceEnd)}" style="font-size:1.9rem;font-weight:800;margin-top:10px">${verdict(st.balanceEnd)}</div>
+          <p class="muted small" style="margin:0">Verwacht bij de eindafrekening</p>
+          <div class="stats" style="margin-top:12px">
+            <div class="stat"><div class="k">Voorschot betaald (${st.monthsKnown} mnd)</div><div class="v num">${eur(st.paidSoFar)}</div></div>
+            <div class="stat"><div class="k">Werkelijke kosten</div><div class="v num">${eur(st.costSoFar)}</div></div>
+            <div class="stat"><div class="k">Saldo nu</div><div class="v num ${cls(st.balanceNow)}">${st.balanceNow >= 0 ? '+' : '−'}${eur(Math.abs(st.balanceNow))}</div></div>
+            <div class="stat"><div class="k">Prognose 12 maanden</div><div class="v num">${eur(st.projected)}</div><div class="muted small">voorschot: ${eur(st.paidTotal)}</div></div>
+          </div>
+          <div class="meter" role="img" aria-label="Kosten ten opzichte van betaald voorschot">
+            <span style="width:${Math.min(100, (st.costSoFar / Math.max(st.paidSoFar, st.costSoFar)) * 100)}%;background:var(--c1)"></span>
+          </div>
+          <p class="muted small" style="margin:4px 0 0">Balk: kosten tot nu (${eur(st.costSoFar)}) t.o.v. betaald voorschot (${eur(st.paidSoFar)}).</p>
+          <h2 style="margin-top:16px">Kosten per maand t.o.v. voorschot</h2>
+          ${legend(settleSeries)}
+          <div id="ch-s"></div>
+          <p class="muted small">Stippellijn = maandelijks voorschot. Vage kolommen zijn geschat: met dezelfde maand vorig jaar, of anders met een vergelijkbare maand uit het stookseizoen (oktober ≈ april, november ≈ maart, december ≈ februari). Hoe meer maanden je ingeeft, hoe juister de prognose.</p>
+          ${table(['Maand', 'Kosten', 'Voorschot', 'Verschil'], st.rows.map((r) => [`${monthShort(Number(r.month.slice(5)) - 1)} ${r.month.slice(2, 4)}${r.actual ? '' : ` (schatting, ${r.basis})`}`, eur(r.cost), eur(st.advance), `${st.advance - r.cost >= 0 ? '+' : '−'}${eur(Math.abs(st.advance - r.cost))}`]))}
+        </section>` : (hasTariff && !data.settings?.advance ? '<p class="banner">Stel je <a href="#/energy/settings">maandelijks voorschot</a> in om je eindafrekening te volgen.</p>' : '');
       body = `
         <section class="card hero">
           <div class="label">Kosten ${year}</div>
@@ -128,6 +207,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           </div>
         </section>
         ${tariffBanner}
+        ${settleCard}
         ${hasTariff ? `
         <section class="card chart-card">
           <h2>Kosten per maand</h2>
@@ -144,10 +224,23 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
             <dt>Water</dt><dd>${liter(sum(filled.map((m) => m.water?.usage)))}</dd>
           </dl>
         </section>`;
-      drawCharts = () => hasTariff && columnChart(document.getElementById('ch-a'), {
-        labels, longLabels, series: costSeries, format: eur, tickFormat: compactEur,
-        rows: months.map((m) => m && Object.fromEntries(Object.keys(UTIL).map((k) => [k, m[k]?.cost ?? null]))),
-      });
+      drawCharts = () => {
+        if (!hasTariff) return;
+        columnChart(document.getElementById('ch-a'), {
+          labels, longLabels, series: costSeries, format: eur, tickFormat: compactEur,
+          rows: months.map((m) => m && Object.fromEntries(Object.keys(UTIL).map((k) => [k, m[k]?.cost ?? null]))),
+        });
+        if (st) {
+          columnChart(document.getElementById('ch-s'), {
+            labels: st.rows.map((r) => monthShort(Number(r.month.slice(5)) - 1)),
+            longLabels: st.rows.map((r) => monthName(r.month)),
+            series: settleSeries, format: eur, tickFormat: compactEur,
+            rows: st.rows.map((r) => (r.actual ? r.parts : { est: r.cost })),
+            faded: st.rows.map((r) => !r.actual),
+            refLine: { value: st.advance, label: `Voorschot ${eur(st.advance)}` },
+          });
+        }
+      };
     } else {
       const u = UTIL[util];
       const fmt = UNIT_FMT[util];
@@ -400,6 +493,47 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     });
   }
 
+  // ---------- voorschot ----------
+
+  async function settingsView() {
+    setChrome('e-tariffs', 'energy');
+    app.innerHTML = '<div class="loading">Laden…</div>';
+    const data = await api('energy/monthly');
+    const s = data.settings || { advance: '', covers: 'elec,gas', period_start: `${today().slice(0, 4)}-01` };
+    const covers = s.covers.split(',');
+    app.innerHTML = `
+      <section class="card stack">
+        <h1>Voorschot</h1>
+        <p class="muted small">Hiermee volg je op hoe je eindafrekening er voorstaat: wat je aan voorschotten betaalt tegenover je werkelijke kosten.</p>
+        <form id="f" novalidate>
+          <div class="field"><label for="advance">Voorschot per maand (€)</label>
+            <input id="advance" name="advance" inputmode="decimal" value="${esc(dec(s.advance))}" placeholder="bv. 160"></div>
+          <fieldset class="field-group"><legend>Het voorschot dekt</legend>
+            ${Object.entries(UTIL).map(([k, u]) => `
+              <label class="check"><input type="checkbox" name="covers" value="${k}" ${covers.includes(k) ? 'checked' : ''}> ${u.label}</label>`).join('')}
+          </fieldset>
+          <div class="field" style="margin-top:14px"><label for="period_start">Afrekeningsperiode start in</label>
+            <input id="period_start" name="period_start" type="month" value="${esc(s.period_start)}" required>
+            <p class="hint">De eerste maand van de 12 maanden die je eindafrekening dekt (zie je vorige afrekening). Het jaar maakt niet uit; de periode schuift elk jaar mee.</p></div>
+          <div class="field" style="margin-top:16px"><button class="btn-block" type="submit">Opslaan</button></div>
+        </form>
+      </section>`;
+    const f = document.getElementById('f');
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submitting(f, async () => {
+        await api('energy/settings', { method: 'PUT', body: {
+          advance: f.advance.value.trim() === '' ? 0 : parseNum(f.advance.value),
+          covers: [...f.querySelectorAll('input[name=covers]:checked')].map((c) => c.value),
+          period_start: f.period_start.value,
+        } });
+        pref.util = 'total';
+        toast('Voorschot opgeslagen');
+        location.hash = '#/energy';
+      });
+    });
+  }
+
   // ---------- tarieven ----------
 
   async function tariffs() {
@@ -409,6 +543,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     app.innerHTML = `
       <div class="stack">
         <div class="row between"><h1>Tarieven</h1><a class="btn btn-small" href="#/energy/tariff/new">+ Tarief</a></div>
+        <a class="card position" href="#/energy/settings"><div class="row between"><b>Voorschot &amp; eindafrekening</b><span class="muted small">Instellen ›</span></div></a>
         <p class="muted small">Verandert een prijs, voeg dan een nieuw tarief toe met de datum vanaf wanneer het geldt. Het geldt vanaf de maand waarin die datum valt; oudere maanden houden hun tarief.</p>
         ${list.length ? list.map((t) => `
           <a class="card position" href="#/energy/tariff/${t.id}">
@@ -474,5 +609,5 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     });
   }
 
-  return { overview, monthForm, monthsList, tariffs, tariffForm, importView };
+  return { overview, monthForm, monthsList, tariffs, tariffForm, importView, settingsView };
 }

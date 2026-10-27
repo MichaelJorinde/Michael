@@ -282,7 +282,21 @@ async function energyRoute(method, key, kind, request, db, user) {
       db.prepare('SELECT * FROM energy_usage WHERE user_id = ?').bind(user.id).all(),
       db.prepare('SELECT * FROM energy_tariffs WHERE user_id = ?').bind(user.id).all(),
     ]);
-    return json({ months: monthlyOverview(rows, tariffs), tariffs: tariffs.map(tariffOut) });
+    const settings = await db.prepare('SELECT advance, covers, period_start FROM energy_settings WHERE user_id = ?').bind(user.id).first();
+    return json({ months: monthlyOverview(rows, tariffs), tariffs: tariffs.map(tariffOut), settings: settings || null });
+  }
+
+  if (kind === 'settings' && method === 'PUT') {
+    const body = await readJson(request);
+    const advance = positiveNumber(body.advance ?? 0, 'voorschot', { allowZero: true });
+    const covers = [...new Set([].concat(body.covers || []))].filter((c) => ['elec', 'gas', 'water'].includes(c));
+    if (!covers.length) throw new HttpError(400, 'Kies minstens één onderdeel dat het voorschot dekt');
+    const periodStart = parseMonth(body.period_start);
+    await db.prepare(
+      `INSERT INTO energy_settings (user_id, advance, covers, period_start) VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET advance = excluded.advance, covers = excluded.covers, period_start = excluded.period_start`,
+    ).bind(user.id, advance, covers.join(','), periodStart).run();
+    return json({ ok: true });
   }
 
   if (kind === 'usage' && key) {
