@@ -313,12 +313,14 @@ async function viewDashboard(refresh = false) {
           <svg width="16" height="16" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Vernieuwen</button>
       </div>
+      <section class="card accent-card" id="trends-card"><div class="trends-head"><h2>Koersverloop</h2></div><div class="loading" style="padding:16px">Koersen laden…</div></section>
       ${personsCard(data.owners)}
       ${allocationCard(data.positions)}
       <h2>Posities${state.owner ? ` van ${esc(state.owner)}` : ''}</h2>
       <div>${data.positions.map(positionCard).join('')}</div>
     </div>`;
   bindOwnerChips(() => viewDashboard());
+  loadTrendsCard(data.positions).catch(() => {});
   app.querySelectorAll('.person[data-owner]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     setOwner(a.dataset.owner);
@@ -387,7 +389,7 @@ async function viewPosition(ticker) {
         ${p.priceError ? `<p class="warn">Koersbron: ${esc(p.priceError)}</p>` : ''}
       </section>
 
-      <section class="card chart-card" id="price-card">
+      <section class="card chart-card accent-card" id="price-card">
         <h2>Koersverloop</h2>
         <div class="loading">Koershistoriek laden…</div>
       </section>
@@ -434,17 +436,8 @@ async function viewPosition(ticker) {
 const PRICE_RANGES = [['1M', 31], ['6M', 183], ['1J', 365], ['5J', null]];
 let priceRange = '1J';
 
-async function loadPriceCard(ticker, p) {
-  const el = document.getElementById('price-card');
-  let data;
-  try {
-    data = await api(`chart/${encodeURIComponent(ticker)}`);
-  } catch (err) {
-    if (!(err instanceof StaleView)) el.innerHTML = `<h2>Koersverloop</h2><p class="muted small">Koershistoriek niet beschikbaar: ${esc(err.message)}</p>`;
-    return;
-  }
-  const cur = p.currency;
-  const fmt = (v) => money(v, cur);
+// Koerssignalen: voortschrijdende gemiddelden, 1-jaarsbereik en een beoordeling laag/gemiddeld/hoog.
+function priceSignals(data, avgPrice) {
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
   const closes = data.closes.map(([d, c]) => ({ d, c }));
   // Laatste punt = huidige koers.
@@ -453,10 +446,7 @@ async function loadPriceCard(ticker, p) {
     if (closes.length && closes[closes.length - 1].d === todayStr) closes[closes.length - 1].c = data.price;
     else closes.push({ d: todayStr, c: data.price });
   }
-  if (closes.length < 2) {
-    el.innerHTML = '<h2>Koersverloop</h2><p class="muted small">Nog onvoldoende koersgegevens voor een grafiek.</p>';
-    return;
-  }
+  if (closes.length < 2) return null;
 
   // Voortschrijdende gemiddelden over 50 en 200 handelsdagen.
   const movingAvg = (n) => {
@@ -478,16 +468,102 @@ async function loadPriceCard(ticker, p) {
   const fromHigh = last.c / hi - 1;
   const rangePos = hi > lo ? (last.c - lo) / (hi - lo) : 0.5;
   const vsMa200 = last.ma200 ? last.c / last.ma200 - 1 : null;
-  const vsAvg = p.avgPrice ? last.c / p.avgPrice - 1 : null;
+  const vsAvg = avgPrice ? last.c / avgPrice - 1 : null;
 
   let verdict;
   if ((vsMa200 != null && vsMa200 < 0) || fromHigh <= -0.1) {
-    verdict = { title: 'Relatief laag', text: `De koers ligt ${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar${vsMa200 != null && vsMa200 < 0 ? ' en onder het 200-daags gemiddelde' : ''}. Historisch waren zulke momenten gunstig om bij te kopen, al is dat geen garantie.` };
+    verdict = { level: 'low', title: 'Relatief laag', text: `De koers ligt ${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar${vsMa200 != null && vsMa200 < 0 ? ' en onder het 200-daags gemiddelde' : ''}. Historisch waren zulke momenten gunstig om bij te kopen, al is dat geen garantie.` };
   } else if (rangePos >= 0.9 && (vsMa200 == null || vsMa200 > 0.05)) {
-    verdict = { title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht soms op een dip; wie maandelijks inlegt, gaat gewoon door.' };
+    verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht soms op een dip; wie maandelijks inlegt, gaat gewoon door.' };
   } else {
-    verdict = { title: 'Gemiddeld', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde.' };
+    verdict = { level: 'mid', title: 'Gemiddeld', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde.' };
   }
+  return { closes, last, year, hi, lo, fromHigh, rangePos, vsMa200, vsAvg, verdict };
+}
+
+const VERDICT_ICON = { low: '▼', mid: '●', high: '▲' };
+const verdictBadge = (v) => `<span class="vbadge vbadge-${v.level}"><span aria-hidden="true">${VERDICT_ICON[v.level]}</span> ${esc(v.title)}</span>`;
+
+// Mini-grafiek (laatste jaar) met 200-daags gemiddelde en gemiddelde aankoopprijs.
+function sparkline(points, avgPrice) {
+  const W = 300;
+  const H = 64;
+  const vals = points.flatMap((pt) => [pt.c, pt.ma200]).filter((v) => v != null);
+  if (avgPrice) vals.push(avgPrice);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const span = max - min || 1;
+  const x = (i) => (i / (points.length - 1)) * W;
+  const y = (v) => H - 4 - ((v - min) / span) * (H - 8);
+  const path = (key) => {
+    let pen = 'M';
+    return points.map((pt, i) => {
+      if (pt[key] == null) { pen = 'M'; return ''; }
+      const seg = `${pen}${x(i).toFixed(1)},${y(pt[key]).toFixed(1)}`;
+      pen = 'L';
+      return seg;
+    }).join('');
+  };
+  const line = path('c');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${line}L${W},${H}L0,${H}Z" fill="var(--c1)" opacity=".12"/>
+    ${avgPrice ? `<line x1="0" x2="${W}" y1="${y(avgPrice)}" y2="${y(avgPrice)}" class="spark-ref"/>` : ''}
+    <path d="${path('ma200')}" fill="none" stroke="var(--c2)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
+    <path d="${line}" fill="none" stroke="var(--c1)" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+// Kaart 'Koersverloop' op het overzicht: per ETF een mini-grafiek en een beoordeling.
+async function loadTrendsCard(positions) {
+  const el = document.getElementById('trends-card');
+  if (!el) return;
+  const results = await Promise.all(positions.map((p) => api(`chart/${encodeURIComponent(p.ticker)}`)
+    .then((data) => ({ p, sig: priceSignals(data, p.avgPrice) }))
+    .catch((err) => { if (err instanceof StaleView) throw err; return { p, sig: null }; })))
+    .catch(() => null);
+  if (!results || !document.body.contains(el)) return;
+  el.innerHTML = `
+    <div class="trends-head">
+      <h2>Koersverloop</h2>
+      <span class="small">laatste jaar</span>
+    </div>
+    ${results.map(({ p, sig }) => {
+      if (!sig) return `<a class="trend" href="#/position/${encodeURIComponent(p.ticker)}"><b>${esc(p.ticker)}</b><span class="muted small">Geen koershistoriek beschikbaar</span></a>`;
+      return `
+      <a class="trend" href="#/position/${encodeURIComponent(p.ticker)}">
+        <div class="row between">
+          <div class="grow"><b>${esc(p.ticker)}</b> <span class="num">${money(sig.last.c, p.currency)}</span></div>
+          ${verdictBadge(sig.verdict)}
+        </div>
+        ${sparkline(sig.year, p.avgPrice)}
+        <div class="trend-stats num">
+          <span>${pct(sig.fromHigh)} <small>t.o.v. 1j-hoogste</small></span>
+          <span>${sig.vsMa200 == null ? '—' : pct(sig.vsMa200)} <small>t.o.v. 200d-gem.</small></span>
+          <span class="${cls(sig.vsAvg)}">${sig.vsAvg == null ? '—' : pct(sig.vsAvg)} <small>t.o.v. jouw aankoop</small></span>
+        </div>
+      </a>`;
+    }).join('')}
+    <p class="small muted" style="margin:8px 0 0">Blauw = koers · oranje stippellijn = 200-daags gemiddelde · grijze lijn = jouw gemiddelde aankoopprijs. Tik voor details.</p>`;
+}
+
+async function loadPriceCard(ticker, p) {
+  const el = document.getElementById('price-card');
+  let data;
+  try {
+    data = await api(`chart/${encodeURIComponent(ticker)}`);
+  } catch (err) {
+    if (!(err instanceof StaleView)) el.innerHTML = `<h2>Koersverloop</h2><p class="muted small">Koershistoriek niet beschikbaar: ${esc(err.message)}</p>`;
+    return;
+  }
+  const cur = p.currency;
+  const fmt = (v) => money(v, cur);
+  const sig = priceSignals(data, p.avgPrice);
+  if (!sig) {
+    el.innerHTML = '<h2>Koersverloop</h2><p class="muted small">Nog onvoldoende koersgegevens voor een grafiek.</p>';
+    return;
+  }
+  const { closes, last, hi, lo, fromHigh, rangePos, vsMa200, vsAvg, verdict } = sig;
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
   const series = [
     { key: 'c', label: 'Koers', color: 'var(--c1)' },
@@ -503,7 +579,7 @@ async function loadPriceCard(ticker, p) {
     ${legend(series)}
     <div id="ch-price"></div>
     <p class="muted small" style="margin-top:4px">Stippellijn: jouw gemiddelde aankoopprijs · ○ = jouw aankopen</p>
-    <div class="verdict"><b>${verdict.title}</b>${esc(verdict.text)}</div>
+    <div class="verdict verdict-${verdict.level}">${verdictBadge(verdict)}<p>${esc(verdict.text)}</p></div>
     <div class="stats" style="margin-top:12px">
       <div class="stat"><div class="k">t.o.v. hoogste (1 jaar)</div><div class="v num">${pct(fromHigh)}</div><div class="muted small">hoogste ${fmt(hi)}</div></div>
       <div class="stat"><div class="k">t.o.v. 200-daags gem.</div><div class="v num">${vsMa200 == null ? '—' : pct(vsMa200)}</div><div class="muted small">${last.ma200 ? fmt(last.ma200) : 'te weinig historiek'}</div></div>
