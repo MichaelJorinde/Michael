@@ -768,7 +768,7 @@ function viewSettings() {
       <section class="card small muted">
         <p>Tip: voeg deze site toe aan je beginscherm (deel-menu → "Zet op beginscherm") om hem als app te gebruiken.</p>
         <p>Koersen komen van Yahoo Finance en worden 15 minuten gecachet.</p>
-        <p>Energie: meterstanden geef je zelf in vanuit de HomeWizard Energy-app.</p>
+        <p>Energie: je maandverbruik geef je zelf in vanuit de HomeWizard Energy-app.</p>
       </section>
     </div>`;
   document.getElementById('logout').addEventListener('click', async () => {
@@ -813,9 +813,9 @@ async function render() {
       case 'settings': return viewSettings();
       case 'energy':
         switch (parts[1]) {
-          case 'add': return await energy.readingForm(null);
-          case 'edit': return await energy.readingForm(parts[2]);
-          case 'readings': return await energy.readingsList();
+          case 'add': return await energy.monthForm(null);
+          case 'month': return await energy.monthForm(parts[2]);
+          case 'months': return await energy.monthsList();
           case 'tariffs': return await energy.tariffs();
           case 'tariff': return await energy.tariffForm(parts[2]);
           default: return await energy.overview();
