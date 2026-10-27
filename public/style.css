@@ -346,3 +346,6 @@ code { font-family: ui-monospace, monospace; font-size: .85em; background: var(-
 details.tx-month { border-top: 1px solid var(--border); margin-top: 10px; }
 details.tx-month summary { display: flex; justify-content: space-between; padding: 12px 0 6px; font-weight: 700; cursor: pointer; text-transform: capitalize; }
 .cat-select { width: auto; min-height: 30px; padding: 0 26px 0 10px; font-size: 16px; border-radius: 999px; background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2393a7aa' stroke-width='1.6' fill='none'/%3E%3C/svg%3E") no-repeat right 9px center / 10px; border: 0; margin: 4px 6px 0 0; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+.pot-group::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--gc); margin-right: 8px; vertical-align: 1px; }
+.pot-row { text-decoration: none; color: inherit; }
