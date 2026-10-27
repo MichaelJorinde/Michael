@@ -118,7 +118,7 @@ export function lineChart(el, { points, series, yFormat, yTick, dateFormat, zero
 
 /**
  * Horizontale staafgrafiek (HTML), ondersteunt negatieve waarden en meerdere reeksen.
- * items: [{ label, sub?, values: { [key]: number } }]
+ * items: [{ label, sub?, color?, values: { [key]: number } }]
  * series: [{ key, label, color, negColor? }]
  */
 export function barChart({ items, series, format }) {
@@ -134,7 +134,7 @@ export function barChart({ items, series, format }) {
         const v = it.values[s.key] ?? 0;
         const w = (Math.abs(v) / span) * 100;
         const neg = v < 0;
-        const color = neg && s.negColor ? s.negColor : s.color;
+        const color = it.color || (neg && s.negColor ? s.negColor : s.color);
         return `<div class="bc-line" title="${esc(`${s.label}: ${format(v)}`)}">
           <div class="bc-track">
             ${min < 0 ? `<span class="bc-zero" style="left:${zero}%"></span>` : ''}

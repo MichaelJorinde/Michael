@@ -987,7 +987,7 @@ function viewSettings() {
   });
 }
 
-const priv = privateViews({ app, api, esc, money, num, toast, setChrome });
+const priv = privateViews({ app, api, esc, money, num, toast, setChrome, submitting, parseNum });
 
 function lockPrivate() {
   fetch('/api/private/lock', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
@@ -1023,6 +1023,8 @@ async function render() {
           case 'pin': return await priv.changePin();
           case 'lock': return await priv.lockNow();
           case 'import': return await priv.importView();
+          case 'pots': return parts[2] === 'import' ? await priv.potsImport() : await priv.pots();
+          case 'pot': return await priv.potForm(parts[2]);
           default: return await priv.overview();
         }
       case 'energy':

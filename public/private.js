@@ -1,7 +1,8 @@
 // € Privé: afgeschermd onderdeel met pincode.
 import { financeViews } from './finance.js';
+import { potsViews } from './pots.js';
 
-export function privateViews({ app, api, esc, money, num, toast, setChrome }) {
+export function privateViews({ app, api, esc, money, num, toast, setChrome, submitting, parseNum }) {
   // Numeriek toetsenbord; roept onDone(pin) aan bij ✓.
   function keypad(el, { title, subtitle = '', onDone }) {
     let pin = '';
@@ -136,5 +137,13 @@ export function privateViews({ app, api, esc, money, num, toast, setChrome }) {
 
   const finance = financeViews({ app, api, esc, money, num, toast, setChrome, gate });
 
-  return { overview, changePin, lockNow, importView: () => finance.importView() };
+  const pots = potsViews({ app, api, esc, money, num, toast, submitting, setChrome, gate, parseNum, LOCK_BUTTON });
+
+  return {
+    overview, changePin, lockNow,
+    importView: () => finance.importView(),
+    pots: () => pots.overview(),
+    potsImport: () => pots.importView(),
+    potForm: (id) => pots.form(id),
+  };
 }
