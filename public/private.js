@@ -1,5 +1,7 @@
 // € Privé: afgeschermd onderdeel met pincode.
-export function privateViews({ app, api, esc, toast, setChrome }) {
+import { financeViews } from './finance.js';
+
+export function privateViews({ app, api, esc, money, num, toast, setChrome }) {
   // Numeriek toetsenbord; roept onDone(pin) aan bij ✓.
   function keypad(el, { title, subtitle = '', onDone }) {
     let pin = '';
@@ -104,20 +106,8 @@ export function privateViews({ app, api, esc, toast, setChrome }) {
     next();
   }
 
-  function overviewContent() {
-    setChrome('p-overview', 'private');
-    app.innerHTML = `
-      <div class="stack">
-        <div class="row between"><h1>€ Privé</h1>
-          <button id="lock" class="btn-ghost btn-small" type="button">🔒 Vergrendel</button></div>
-        <section class="card accent-card empty stack">
-          <h2>Ontgrendeld</h2>
-          <p>Dit afgeschermde deel is klaar. Laat Claude weten wat je hier wilt bijhouden, dan komt het hier te staan.</p>
-          <p class="muted small">Het vergrendelt automatisch na 10 minuten zonder activiteit, wanneer je naar ETF's of Energie gaat, of wanneer je de app sluit.</p>
-        </section>
-      </div>`;
-    document.getElementById('lock').addEventListener('click', lockNow);
-  }
+  const LOCK_BUTTON = '<button id="lock" class="btn-ghost btn-small" type="button">🔒 Vergrendel</button>';
+  const overviewContent = () => finance.overview(LOCK_BUTTON);
 
   async function lockNow() {
     await api('private/lock', { method: 'POST' }).catch(() => {});
@@ -144,5 +134,7 @@ export function privateViews({ app, api, esc, toast, setChrome }) {
     });
   }
 
-  return { overview, changePin, lockNow };
+  const finance = financeViews({ app, api, esc, money, num, toast, setChrome, gate });
+
+  return { overview, changePin, lockNow, importView: () => finance.importView() };
 }
