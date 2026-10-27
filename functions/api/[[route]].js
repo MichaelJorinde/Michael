@@ -4,6 +4,7 @@ import {
   assertNotThrottled, recordFailure, clearFailures,
 } from '../_lib/auth.js';
 import { getPrices, searchTickers } from '../_lib/prices.js';
+import { getHistories } from '../_lib/history.js';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-^=]{0,19}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,7 +34,10 @@ function parsePurchase(body) {
   if (!/^[A-Z]{3}$/.test(currency)) throw new HttpError(400, 'Ongeldige munt');
   const name = body.name ? String(body.name).trim().slice(0, 120) : null;
   const note = body.note ? String(body.note).trim().slice(0, 300) : null;
+  const owner = String(body.owner || '').trim().slice(0, 40);
+  if (!owner) throw new HttpError(400, 'Vul in voor wie de aankoop is');
   return {
+    owner,
     ticker: normTicker(body.ticker),
     name,
     date,
@@ -48,52 +52,99 @@ function parsePurchase(body) {
 function purchaseOut(r) {
   return {
     id: r.id, ticker: r.ticker, name: r.name, date: r.purchase_date, quantity: r.quantity,
-    price: r.price, fees: r.fees, currency: r.currency, note: r.note,
+    price: r.price, fees: r.fees, currency: r.currency, note: r.note, owner: r.owner,
   };
 }
 
 // ---------- portefeuille ----------
 
-async function buildPortfolio(db, user, force) {
-  const { results: rows } = await db.prepare(
+const DAY_MS = 86400000;
+const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+async function loadPurchases(db, user) {
+  const { results } = await db.prepare(
     'SELECT * FROM purchases WHERE user_id = ? ORDER BY purchase_date, id',
   ).bind(user.id).all();
+  return results.map((r) => ({ ...r, owner: r.owner || user.name }));
+}
+
+// Geeft een functie ticker → { price, source, currency, updatedAt, error, name }.
+async function loadPricing(db, user, tickers, force = false) {
   const { results: manual } = await db.prepare(
     'SELECT ticker, price, updated_at FROM user_prices WHERE user_id = ?',
   ).bind(user.id).all();
   const manualMap = Object.fromEntries(manual.map((m) => [m.ticker, m]));
+  const market = await getPrices(db, tickers.filter((t) => !manualMap[t]), { force });
+  return (ticker) => {
+    const m = manualMap[ticker];
+    if (m) return { price: m.price, source: 'manual', currency: null, updatedAt: m.updated_at, error: null, name: null };
+    const q = market[ticker] || {};
+    return {
+      price: q.price ?? null,
+      source: q.price != null ? 'market' : null,
+      currency: q.currency || null,
+      updatedAt: q.updatedAt || null,
+      error: q.error || null,
+      name: q.name || null,
+    };
+  };
+}
 
+// items: [{ currency, invested, value|null }] → totalen per munt.
+// Winst enkel berekend over items waarvan de koers gekend is.
+function aggregateTotals(items) {
+  const totals = {};
+  for (const it of items) {
+    const t = (totals[it.currency] ||= { currency: it.currency, invested: 0, value: 0, pricedInvested: 0, complete: true });
+    t.invested += it.invested;
+    if (it.value != null) {
+      t.value += it.value;
+      t.pricedInvested += it.invested;
+    } else {
+      t.complete = false;
+    }
+  }
+  return Object.values(totals).map(({ pricedInvested, ...t }) => {
+    const gain = pricedInvested > 0 ? t.value - pricedInvested : null;
+    return { ...t, value: pricedInvested > 0 ? t.value : null, gain, gainPct: gain != null ? gain / pricedInvested : null };
+  });
+}
+
+async function buildPortfolio(db, user, { force = false, owner = null } = {}) {
+  const all = await loadPurchases(db, user);
+  const priceOf = await loadPricing(db, user, [...new Set(all.map((r) => r.ticker))], force);
+  const itemOf = (r) => {
+    const { price } = priceOf(r.ticker);
+    return { currency: r.currency, invested: r.quantity * r.price + r.fees, value: price != null ? r.quantity * price : null };
+  };
+
+  // Uitsplitsing per persoon (altijd over alle aankopen)
+  const ownerNames = [...new Set(all.map((r) => r.owner))].sort((a, b) => a.localeCompare(b, 'nl'));
+  const owners = ownerNames.map((name) => {
+    const rows = all.filter((r) => r.owner === name);
+    return { owner: name, purchases: rows.length, tickers: [...new Set(rows.map((r) => r.ticker))], totals: aggregateTotals(rows.map(itemOf)) };
+  });
+
+  const rows = owner ? all.filter((r) => r.owner === owner) : all;
   const groups = new Map();
   for (const r of rows) {
     if (!groups.has(r.ticker)) {
-      groups.set(r.ticker, { ticker: r.ticker, name: r.name, currency: r.currency, quantity: 0, cost: 0, fees: 0, count: 0, firstDate: r.purchase_date });
+      groups.set(r.ticker, { ticker: r.ticker, name: r.name, currency: r.currency, quantity: 0, cost: 0, fees: 0, count: 0, firstDate: r.purchase_date, byOwner: {} });
     }
     const g = groups.get(r.ticker);
     g.quantity += r.quantity;
     g.cost += r.quantity * r.price;
     g.fees += r.fees;
     g.count += 1;
+    g.byOwner[r.owner] = (g.byOwner[r.owner] || 0) + r.quantity;
     if (r.name) g.name = r.name;
   }
 
-  const market = await getPrices(db, [...groups.keys()].filter((t) => !manualMap[t]), { force });
-
-  const totals = {};
   const positions = [...groups.values()].map((g) => {
-    const m = manualMap[g.ticker];
-    const q = market[g.ticker] || {};
-    const price = m ? m.price : q.price;
+    const q = priceOf(g.ticker);
     const invested = g.cost + g.fees;
-    const value = price != null ? g.quantity * price : null;
+    const value = q.price != null ? g.quantity * q.price : null;
     const gain = value != null ? value - invested : null;
-    const t = (totals[g.currency] ||= { currency: g.currency, invested: 0, value: 0, pricedInvested: 0, complete: true });
-    t.invested += invested;
-    if (value != null) {
-      t.value += value;
-      t.pricedInvested += invested;
-    } else {
-      t.complete = false;
-    }
     return {
       ticker: g.ticker,
       name: g.name || q.name || null,
@@ -104,11 +155,12 @@ async function buildPortfolio(db, user, force) {
       fees: g.fees,
       purchases: g.count,
       firstDate: g.firstDate,
-      price: price ?? null,
-      priceSource: m ? 'manual' : (q.price != null ? 'market' : null),
-      priceCurrency: m ? g.currency : (q.currency || null),
-      priceUpdatedAt: m ? m.updated_at : (q.updatedAt || null),
-      priceError: q.error || null,
+      owners: Object.entries(g.byOwner).map(([name, quantity]) => ({ owner: name, quantity })),
+      price: q.price,
+      priceSource: q.source,
+      priceCurrency: q.source === 'manual' ? g.currency : q.currency,
+      priceUpdatedAt: q.updatedAt,
+      priceError: q.error,
       value,
       gain,
       gainPct: gain != null && invested > 0 ? gain / invested : null,
@@ -116,19 +168,62 @@ async function buildPortfolio(db, user, force) {
   });
   positions.sort((a, b) => (b.value ?? b.invested) - (a.value ?? a.invested));
 
-  return {
-    positions,
-    // Winst enkel berekenen over posities waarvoor een koers gekend is.
-    totals: Object.values(totals).map(({ pricedInvested, ...t }) => {
-      const gain = pricedInvested > 0 ? t.value - pricedInvested : null;
-      return {
-        ...t,
-        value: pricedInvested > 0 ? t.value : null,
-        gain,
-        gainPct: gain != null ? gain / pricedInvested : null,
-      };
-    }),
-  };
+  return { owner, owners, positions, totals: aggregateTotals(positions) };
+}
+
+// Waarde en geïnvesteerd bedrag doorheen de tijd.
+async function buildHistory(db, user, owner) {
+  const all = await loadPurchases(db, user);
+  let rows = owner ? all.filter((r) => r.owner === owner) : all;
+  if (!rows.length) return { currency: null, points: [], skipped: 0 };
+
+  // Grafiek in één munt: de munt met het grootste geïnvesteerde bedrag.
+  const perCurrency = {};
+  rows.forEach((r) => { perCurrency[r.currency] = (perCurrency[r.currency] || 0) + r.quantity * r.price; });
+  const currency = Object.entries(perCurrency).sort((a, b) => b[1] - a[1])[0][0];
+  const skipped = rows.filter((r) => r.currency !== currency).length;
+  rows = rows.filter((r) => r.currency === currency);
+
+  const fromDates = {};
+  rows.forEach((r) => { if (!fromDates[r.ticker] || r.purchase_date < fromDates[r.ticker]) fromDates[r.ticker] = r.purchase_date; });
+  const tickers = Object.keys(fromDates);
+  const [histories, priceOf] = await Promise.all([getHistories(db, fromDates), loadPricing(db, user, tickers)]);
+
+  const start = Date.parse(rows[0].purchase_date);
+  const todayStr = isoDay(Date.now());
+  const end = Date.parse(todayStr);
+  const spanDays = Math.round((end - start) / DAY_MS);
+  const step = spanDays > 730 ? 7 : spanDays > 180 ? 2 : 1; // max. ~400 punten
+  const dates = [];
+  for (let t = start; t < end; t += step * DAY_MS) dates.push(isoDay(t));
+  dates.push(todayStr);
+
+  // Per ticker: laatste gekende slotkoers op of vóór een datum (anders aankoopprijs).
+  const cursor = Object.fromEntries(tickers.map((t) => [t, { i: 0, last: null }]));
+  let pi = 0;
+  const qty = {};
+  let invested = 0;
+  const lastBuyPrice = {};
+  const points = dates.map((d) => {
+    while (pi < rows.length && rows[pi].purchase_date <= d) {
+      const r = rows[pi++];
+      qty[r.ticker] = (qty[r.ticker] || 0) + r.quantity;
+      invested += r.quantity * r.price + r.fees;
+      lastBuyPrice[r.ticker] = r.price;
+    }
+    let value = 0;
+    for (const t of Object.keys(qty)) {
+      const h = histories[t] || [];
+      const c = cursor[t];
+      while (c.i < h.length && h[c.i][0] <= d) c.last = h[c.i++][1];
+      let price = c.last ?? lastBuyPrice[t];
+      if (d === todayStr && priceOf(t).price != null) price = priceOf(t).price;
+      value += qty[t] * price;
+    }
+    return { d, invested: Math.round(invested * 100) / 100, value: Math.round(value * 100) / 100 };
+  });
+
+  return { currency, points, skipped };
 }
 
 // ---------- routes ----------
@@ -206,7 +301,14 @@ async function route(method, parts, request, env, url) {
   }
 
   if (a === 'portfolio' && method === 'GET') {
-    return json(await buildPortfolio(db, user, url.searchParams.get('refresh') === '1'));
+    return json(await buildPortfolio(db, user, {
+      force: url.searchParams.get('refresh') === '1',
+      owner: url.searchParams.get('owner') || null,
+    }));
+  }
+
+  if (a === 'history' && method === 'GET') {
+    return json(await buildHistory(db, user, url.searchParams.get('owner') || null));
   }
 
   if (a === 'purchases') {
@@ -219,9 +321,9 @@ async function route(method, parts, request, env, url) {
     if (!b && method === 'POST') {
       const p = parsePurchase(await readJson(request));
       const row = await db.prepare(
-        `INSERT INTO purchases (user_id, ticker, name, purchase_date, quantity, price, fees, currency, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-      ).bind(user.id, p.ticker, p.name, p.date, p.quantity, p.price, p.fees, p.currency, p.note).first();
+        `INSERT INTO purchases (user_id, ticker, name, purchase_date, quantity, price, fees, currency, note, owner)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      ).bind(user.id, p.ticker, p.name, p.date, p.quantity, p.price, p.fees, p.currency, p.note, p.owner).first();
       return json({ purchase: purchaseOut(row) }, 201);
     }
     const id = Number(b);
@@ -229,9 +331,9 @@ async function route(method, parts, request, env, url) {
     if (method === 'PUT') {
       const p = parsePurchase(await readJson(request));
       const row = await db.prepare(
-        `UPDATE purchases SET ticker = ?, name = ?, purchase_date = ?, quantity = ?, price = ?, fees = ?, currency = ?, note = ?
+        `UPDATE purchases SET ticker = ?, name = ?, purchase_date = ?, quantity = ?, price = ?, fees = ?, currency = ?, note = ?, owner = ?
          WHERE id = ? AND user_id = ? RETURNING *`,
-      ).bind(p.ticker, p.name, p.date, p.quantity, p.price, p.fees, p.currency, p.note, id, user.id).first();
+      ).bind(p.ticker, p.name, p.date, p.quantity, p.price, p.fees, p.currency, p.note, p.owner, id, user.id).first();
       if (!row) throw new HttpError(404, 'Aankoop niet gevonden');
       return json({ purchase: purchaseOut(row) });
     }
