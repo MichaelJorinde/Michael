@@ -323,3 +323,23 @@ code { font-family: ui-monospace, monospace; font-size: .85em; background: var(-
 .verdict-good { background: color-mix(in srgb, var(--v-good) 10%, var(--surface)); }
 .verdict-fair { background: color-mix(in srgb, var(--v-fair) 10%, var(--surface)); }
 .verdict-high { background: color-mix(in srgb, var(--v-high) 10%, var(--surface)); }
+
+/* ---------- € Privé ---------- */
+.tabbar-3 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 430px) { .topbar-user { display: none; } }
+.seg a { padding: 6px 11px; white-space: nowrap; }
+.pin-card { max-width: 380px; margin: 4vh auto 0; text-align: center; }
+.pin-lock { width: 56px; height: 56px; margin: 4px auto 10px; border-radius: 18px; display: grid; place-items: center; color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.pin-lock svg { width: 28px; height: 28px; }
+.pin-sub { margin: 6px 0 0; }
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 22px 0 6px; min-height: 16px; }
+.pin-dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); }
+.pin-dots span.on { background: var(--primary); border-color: var(--primary); }
+.pin-dots.shake { animation: shake .35s; }
+@keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.pin-err { min-height: 1.3em; margin: 4px 0 8px; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 300px; margin: 0 auto; }
+.pin-pad button { min-height: 64px; border-radius: 18px; font-size: 1.6rem; font-weight: 700; background: var(--surface-2); color: var(--text); }
+.pin-pad button:active { transform: scale(.96); }
+.pin-pad .pin-aux { font-size: 1.3rem; }
+.pin-pad .pin-ok { background: var(--primary); color: var(--primary-ink); }

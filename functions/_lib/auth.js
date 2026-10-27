@@ -102,3 +102,9 @@ export async function recordFailure(db, email) {
 export async function clearFailures(db, email) {
   await db.prepare('DELETE FROM login_failures WHERE email = ?').bind(email).run();
 }
+
+// Hash van het sessietoken van dit verzoek (om sessiegebonden gegevens bij te werken).
+export async function sessionHash(request) {
+  const token = readToken(request);
+  return token ? sha256Hex(token) : null;
+}

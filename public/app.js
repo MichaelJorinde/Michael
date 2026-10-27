@@ -1,15 +1,16 @@
 // ETF Tracker — single-page app zonder build-stap.
 import { lineChart, barChart, legend } from './charts.js';
 import { energyViews } from './energy.js';
+import { privateViews } from './private.js';
 
 const app = document.getElementById('app');
-const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy') };
+const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy'), private: document.getElementById('tabbar-private') };
 const sectionNav = document.getElementById('sections');
 const topbarUser = document.getElementById('topbar-user');
 const toastEl = document.getElementById('toast');
 
 const state = { user: null, config: null, owner: null, section: 'etf' };
-try { state.section = localStorage.getItem('section') === 'energy' ? 'energy' : 'etf'; } catch { /* privémodus */ }
+try { state.section = ['energy', 'private'].includes(localStorage.getItem('section')) ? localStorage.getItem('section') : 'etf'; } catch { /* privémodus */ }
 // Vaste volgorde van grafiekkleuren (CSS-variabelen, met donkere variant)
 const COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `var(--c${i})`);
 const OTHER_COLOR = 'var(--muted)';
@@ -113,6 +114,8 @@ async function submitting(form, fn) {
 function setChrome(tab, section = tab ? 'etf' : state.section) {
   const loggedIn = Boolean(state.user);
   if (loggedIn && section !== state.section) {
+    // € Privé vergrendelt zodra je naar een ander onderdeel gaat.
+    if (state.section === 'private') lockPrivate();
     state.section = section;
     try { localStorage.setItem('section', section); } catch { /* privémodus */ }
   }
@@ -151,7 +154,7 @@ function viewLogin() {
     submitting(f, async () => {
       const { user } = await api('auth/login', { method: 'POST', body: { email: f.email.value, password: f.password.value } });
       state.user = user;
-      location.hash = state.section === 'energy' ? '#/energy' : '#/';
+      location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/';
     });
   });
 }
@@ -188,7 +191,7 @@ function viewRegister() {
         body: { name: f.name.value, email: f.email.value, password: f.password.value, code: f.code?.value },
       });
       state.user = user;
-      location.hash = state.section === 'energy' ? '#/energy' : '#/';
+      location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/';
     });
   });
 }
@@ -984,6 +987,12 @@ function viewSettings() {
   });
 }
 
+const priv = privateViews({ app, api, esc, toast, setChrome });
+
+function lockPrivate() {
+  fetch('/api/private/lock', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
+}
+
 const energy = energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt, cls });
 
 // ---------- router ----------
@@ -996,7 +1005,7 @@ async function render() {
   const publicRoute = parts[0] === 'login' || parts[0] === 'register';
 
   if (!state.user && !publicRoute) { location.hash = '#/login'; return; }
-  if (state.user && publicRoute) { location.hash = state.section === 'energy' ? '#/energy' : '#/'; return; }
+  if (state.user && publicRoute) { location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/'; return; }
 
   window.scrollTo(0, 0);
   try {
@@ -1009,6 +1018,12 @@ async function render() {
       case 'charts': return await viewCharts();
       case 'position': return await viewPosition(decodeURIComponent(parts[1] || ''));
       case 'settings': return viewSettings();
+      case 'private':
+        switch (parts[1]) {
+          case 'pin': return await priv.changePin();
+          case 'lock': return await priv.lockNow();
+          default: return await priv.overview();
+        }
       case 'energy':
         switch (parts[1]) {
           case 'add': return await energy.monthForm(null);
@@ -1039,6 +1054,14 @@ async function init() {
     if (res.ok) state.user = (await res.json()).user;
   } catch { /* offline */ }
   window.addEventListener('hashchange', render);
+  // App naar de achtergrond: € Privé meteen vergrendelen.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && state.section === 'private') {
+      lockPrivate();
+      if (location.hash.startsWith('#/private')) app.innerHTML = '';
+    }
+    if (document.visibilityState === 'visible' && state.section === 'private' && location.hash.startsWith('#/private')) render();
+  });
   // Een tab aantikken waarvan het adres al open staat, laadt het scherm opnieuw.
   document.querySelectorAll('.tabbar a, #sections a').forEach((a) => a.addEventListener('click', (e) => {
     if (a.getAttribute('href') === (location.hash || '#/')) {
