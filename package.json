@@ -1,0 +1,12 @@
+{
+  "name": "etf-tracker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply etf-tracker --local && wrangler pages dev",
+    "deploy": "wrangler d1 migrations apply etf-tracker --remote && wrangler pages deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.153.0"
+  }
+}

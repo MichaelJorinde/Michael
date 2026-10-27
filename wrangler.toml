@@ -1,0 +1,17 @@
+# Cloudflare Pages-configuratie (Pages + Functions + D1)
+name = "etf-tracker"
+pages_build_output_dir = "public"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "etf-tracker"
+# Vervang door de ID van je eigen D1-database (zie README).
+database_id = "577dbd24-67e6-437d-83c9-d6c7a166e9f4"
+migrations_dir = "migrations"
+
+[vars]
+# Zet op "false" om nieuwe registraties te blokkeren.
+REGISTRATION_OPEN = "true"
+# Optioneel: REGISTRATION_CODE als geheime uitnodigingscode
+# (via Cloudflare dashboard → Pages-project → Settings → Variables and Secrets).
