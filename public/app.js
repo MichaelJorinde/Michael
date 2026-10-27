@@ -816,6 +816,7 @@ async function render() {
           case 'add': return await energy.monthForm(null);
           case 'month': return await energy.monthForm(parts[2]);
           case 'months': return await energy.monthsList();
+          case 'import': return await energy.importView();
           case 'tariffs': return await energy.tariffs();
           case 'tariff': return await energy.tariffForm(parts[2]);
           default: return await energy.overview();

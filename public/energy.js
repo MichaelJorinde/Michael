@@ -89,6 +89,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           <p>Geef één keer per maand je totaalverbruik in uit de HomeWizard Energy-app: elektriciteit (afname en injectie), gas en water.</p>
           ${hasTariff ? '' : '<p class="small">Stel ook je <a href="#/energy/tariffs">tarieven</a> in, dan zie je meteen de kosten.</p>'}
           <a class="btn" href="#/energy/add">Maandverbruik ingeven</a>
+          <a href="#/energy/import" class="small">Of meerdere maanden tegelijk importeren</a>
         </section>`;
       return;
     }
@@ -307,12 +308,13 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     app.innerHTML = '<div class="loading">Laden…</div>';
     const data = await api('energy/monthly');
     if (!data.months.length) {
-      app.innerHTML = '<section class="card empty stack"><p>Nog geen maandverbruik.</p><a class="btn" href="#/energy/add">Maandverbruik ingeven</a></section>';
+      app.innerHTML = '<section class="card empty stack"><p>Nog geen maandverbruik.</p><a class="btn" href="#/energy/add">Maandverbruik ingeven</a><a href="#/energy/import" class="small">Of meerdere maanden importeren</a></section>';
       return;
     }
     app.innerHTML = `
       <div class="stack">
-        <div class="row between"><h1>Per maand</h1><a class="btn btn-small" href="#/energy/add">+ Maand</a></div>
+        <div class="row between"><h1>Per maand</h1>
+          <div class="row"><a class="btn btn-small btn-ghost" href="#/energy/import">Importeren</a><a class="btn btn-small" href="#/energy/add">+ Maand</a></div></div>
         ${data.months.slice().reverse().map((m) => `
           <a class="card position" href="#/energy/month/${m.month}">
             <div class="row between"><b>${esc(monthName(m.month))}</b><b class="num">${eur(m.total)}</b></div>
@@ -324,6 +326,78 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
             ${m.note ? `<div class="muted small">${esc(m.note)}</div>` : ''}
           </a>`).join('')}
       </div>`;
+  }
+
+  // ---------- importeren ----------
+
+  // Eén maand per regel: maand; afname kWh; injectie kWh; gas m³; water liter
+  function parseImport(text) {
+    const rows = [];
+    const errors = [];
+    text.split(/\r?\n/).forEach((line, i) => {
+      const clean = line.trim();
+      if (!clean || clean.startsWith('#')) return;
+      const cells = clean.split(/[;\t]/).map((c) => c.trim());
+      const [month, ...vals] = cells;
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { errors.push(`Regel ${i + 1}: ongeldige maand "${month}" (gebruik JJJJ-MM)`); return; }
+      const nums = vals.slice(0, 4).map((v) => (v === '' || v == null ? null : parseNum(v)));
+      if (nums.some((n) => n != null && (!Number.isFinite(n) || n < 0))) { errors.push(`Regel ${i + 1}: ongeldig getal`); return; }
+      const [elec_import = null, elec_export = null, gas = null, water = null] = nums;
+      if ([elec_import, elec_export, gas, water].every((n) => n == null)) { errors.push(`Regel ${i + 1}: geen verbruik`); return; }
+      rows.push({ month, elec_import, elec_export, gas, water });
+    });
+    return { rows, errors };
+  }
+
+  async function importView() {
+    setChrome('e-months', 'energy');
+    app.innerHTML = '<div class="loading">Laden…</div>';
+    const data = await api('energy/monthly');
+    const existing = new Set(data.months.map((m) => m.month));
+    app.innerHTML = `
+      <section class="card stack">
+        <h1>Importeren</h1>
+        <p class="muted small">Eén maand per regel, gescheiden door puntkomma's:<br>
+          <code>maand; afname kWh; injectie kWh; gas m³; water liter</code><br>
+          bv. <code>2026-05; 256; 369; 42,4;</code> — laat een waarde leeg als je ze niet hebt.</p>
+        <form id="f" novalidate>
+          <div class="field"><label for="text">Gegevens</label>
+            <textarea id="text" name="text" rows="10" spellcheck="false" style="font-family:ui-monospace,monospace;font-size:14px" placeholder="2026-01; 415; 97; 189;"></textarea></div>
+          <div id="prev"></div>
+          <div class="field" style="margin-top:14px"><button class="btn-block" type="submit" disabled>Importeren</button></div>
+        </form>
+      </section>`;
+    const f = document.getElementById('f');
+    const btn = f.querySelector('button[type=submit]');
+    let parsed = { rows: [], errors: [] };
+    const render = () => {
+      parsed = parseImport(f.text.value);
+      const prev = document.getElementById('prev');
+      prev.innerHTML = `
+        ${parsed.errors.map((e) => `<p class="error">${esc(e)}</p>`).join('')}
+        ${parsed.rows.length ? `<div class="tbl-wrap" style="max-height:none"><table class="tbl">
+          <thead><tr><th>Maand</th><th>Afname</th><th>Injectie</th><th>Gas</th><th>Water</th></tr></thead>
+          <tbody>${parsed.rows.map((r) => `<tr>
+            <td>${esc(monthShort(Number(r.month.slice(5)) - 1))} ${r.month.slice(0, 4)}${existing.has(r.month) ? ' *' : ''}</td>
+            <td>${r.elec_import == null ? '—' : num(r.elec_import, 1)}</td><td>${r.elec_export == null ? '—' : num(r.elec_export, 1)}</td>
+            <td>${r.gas == null ? '—' : num(r.gas, 2)}</td><td>${r.water == null ? '—' : num(r.water, 0)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        ${parsed.rows.some((r) => existing.has(r.month)) ? '<p class="muted small">* Deze maand bestaat al en wordt overschreven.</p>' : ''}` : ''}`;
+      btn.disabled = !parsed.rows.length || parsed.errors.length > 0;
+      btn.textContent = parsed.rows.length ? `${parsed.rows.length} maand(en) importeren` : 'Importeren';
+    };
+    f.text.addEventListener('input', render);
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submitting(f, async () => {
+        for (const r of parsed.rows) {
+          const { month, ...body } = r;
+          await api(`energy/usage/${month}`, { method: 'PUT', body });
+        }
+        toast(`${parsed.rows.length} maand(en) geïmporteerd`);
+        location.hash = '#/energy';
+      });
+    });
   }
 
   // ---------- tarieven ----------
@@ -400,5 +474,5 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     });
   }
 
-  return { overview, monthForm, monthsList, tariffs, tariffForm };
+  return { overview, monthForm, monthsList, tariffs, tariffForm, importView };
 }

@@ -278,3 +278,4 @@ details.table-view summary { color: var(--primary); cursor: pointer; font-weight
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .banner { border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--c4) 16%, transparent); font-size: .9rem; }
+code { font-family: ui-monospace, monospace; font-size: .85em; background: var(--surface-2); padding: 1px 5px; border-radius: 6px; }
