@@ -1,9 +1,10 @@
-# Mijn Dashboard (ETF's + Energie)
+# Mijn Dashboard (ETF's + Energie + € Privé)
 
 Mobiele webapp met twee onderdelen:
 - **ETF's:** aankopen registreren en zien hoeveel je geïnvesteerd hebt en wat het nu waard is.
 - **Energie:** maandelijks totaalverbruik uit HomeWizard (elektriciteit afname/injectie, gas, water)
   met verbruik en kosten per maand in grafieken.
+- **€ Privé:** afgeschermd onderdeel met pincode.
 
 Meerdere accounts mogelijk; elke gebruiker ziet enkel zijn eigen gegevens.
 
@@ -21,6 +22,8 @@ Koersen komen van Yahoo Finance (gratis, geen API-sleutel) en worden 15 min geca
 - Detail per positie: aantal stuks, gemiddelde aankoopprijs, kosten, en een manuele koers als terugvaloptie
 - **Energie:** één keer per maand het totaalverbruik ingeven (kWh afname en injectie, m³ gas, liter water),
   tarieven met geldigheidsdatum, verbruik en kosten per maand per onderdeel in grafieken en tabellen
+- **€ Privé:** pincode (4–8 cijfers, gehasht op de server), ontgrendeling per toestel die vervalt na
+  10 minuten zonder activiteit, bij het verlaten van het onderdeel of het sluiten van de app
 - Mobile-first ontwerp, donkere modus, toe te voegen aan het beginscherm (PWA)
 
 ## Eenmalige installatie (kan volledig vanaf je gsm)
@@ -69,3 +72,4 @@ npm run dev        # http://localhost:8788 met een lokale D1-database
 | PUT / DELETE | `/api/energy/usage/:maand` | Maandverbruik (YYYY-MM) |
 | GET / POST / PUT / DELETE | `/api/energy/tariffs[/:id]` | Energietarieven |
 | GET | `/api/energy/monthly` | Verbruik en kosten per maand |
+| GET / POST | `/api/private/status`, `/pin`, `/unlock`, `/lock` | € Privé: pincode en ontgrendeling |
