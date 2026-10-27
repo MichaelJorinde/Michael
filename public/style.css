@@ -41,6 +41,8 @@
 }
 
 * { box-sizing: border-box; }
+/* 'hidden' moet altijd winnen van display-regels (bv. de tabbalken van ETF's en Energie) */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
