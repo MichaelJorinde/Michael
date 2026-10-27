@@ -279,3 +279,11 @@ details.table-view summary { color: var(--primary); cursor: pointer; font-weight
 .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .banner { border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--c4) 16%, transparent); font-size: .9rem; }
 code { font-family: ui-monospace, monospace; font-size: .85em; background: var(--surface-2); padding: 1px 5px; border-radius: 6px; }
+.cc-col.faded { opacity: .45; }
+.cc-col.faded.dim { opacity: .2; }
+.cc-ref { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.cc-ref-label { fill: var(--text); font-weight: 700; }
+.meter { position: relative; height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 10px; }
+.meter span { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; }
+.check { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 44px; margin: 0; }
+.check input { width: 22px; height: 22px; min-height: 0; padding: 0; appearance: auto; -webkit-appearance: checkbox; accent-color: var(--primary); }

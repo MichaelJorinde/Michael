@@ -787,7 +787,7 @@ function viewSettings() {
   });
 }
 
-const energy = energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt });
+const energy = energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt, cls });
 
 // ---------- router ----------
 
@@ -817,6 +817,7 @@ async function render() {
           case 'month': return await energy.monthForm(parts[2]);
           case 'months': return await energy.monthsList();
           case 'import': return await energy.importView();
+          case 'settings': return await energy.settingsView();
           case 'tariffs': return await energy.tariffs();
           case 'tariff': return await energy.tariffForm(parts[2]);
           default: return await energy.overview();
