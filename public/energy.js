@@ -155,7 +155,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const longLabels = keys.map(monthName);
 
     const chips = `
-      <div class="chips">${[['total', 'Totaal'], ...Object.entries(UTIL).map(([k, u]) => [k, u.label])].map(([k, l]) => `
+      <div class="chips">${[['total', 'Totaal'], ...Object.entries(UTIL).map(([k, u]) => [k, u.label]), ['battery', '🔋 Batterij']].map(([k, l]) => `
         <button type="button" class="chip ${k === util ? 'active' : ''}" data-util="${k}">${l}</button>`).join('')}</div>
       ${years.length > 1 ? `<div class="chips">${years.map((y) => `
         <button type="button" class="chip ${y === year ? 'active' : ''}" data-year="${y}">${y}</button>`).join('')}</div>` : ''}`;
@@ -163,7 +163,9 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
 
     let body;
     let drawCharts;
-    if (util === 'total') {
+    if (util === 'battery') {
+      ({ body, draw: drawCharts } = batteryView(data));
+    } else if (util === 'total') {
       const costSeries = Object.entries(UTIL).map(([k, u]) => ({ key: k, label: u.label, color: u.color }));
       const perUtil = Object.fromEntries(Object.keys(UTIL).map((k) => [k, sum(filled.map((m) => m[k]?.cost))]));
       const costMonths = filled.filter((m) => m.total != null);
@@ -313,6 +315,152 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       pref.year = Number(b.dataset.year);
       overview();
     }));
+  }
+
+  // ---------- thuisbatterij (simulatie) ----------
+
+  const BAT_DEFAULTS = { price: 1000, bebat: 180, bebatIncluded: false, usable: 4.6, type: 'stekker', keuring: 150 };
+  const BAT_TYPES = {
+    stekker: { label: 'Stekker (max. 800 W)', factor: 0.85, note: 'Geen keuring nodig; met een digitale meter ook geen melding bij Fluvius.' },
+    vast: { label: 'Vaste aansluiting (±2,5 kW)', factor: 0.92, note: 'Keuring en melding bij Fluvius verplicht; vangt ook grotere verbruikspieken op.' },
+  };
+  const EFF = 0.88; // rendement laden + ontladen
+  const EVENING_SHARE = 0.65; // deel van de afname wanneer de zon niet schijnt
+
+  function loadBat() {
+    try { return { ...BAT_DEFAULTS, ...JSON.parse(localStorage.getItem('battery-sim') || '{}') }; } catch { return { ...BAT_DEFAULTS }; }
+  }
+  function saveBat(o) {
+    try { localStorage.setItem('battery-sim', JSON.stringify(o)); } catch { /* privémodus */ }
+  }
+
+  // Per kalendermaand: hoeveel zonne-overschot de batterij 's avonds kan inzetten, en wat dat bespaart.
+  // Maanden zonder gegevens: zelfde maand vorig jaar, anders de 'zonnespiegel' (okt≈mrt, nov≈feb, dec≈jan, …), anders het gemiddelde.
+  function simulateBattery(allMonths, tariffs, o) {
+    const factor = BAT_TYPES[o.type].factor;
+    const withElec = allMonths.filter((m) => m.elec && tariffFor(tariffs, m.month));
+    const latest = (mm) => withElec.filter((m) => Number(m.month.slice(5)) === mm).pop();
+    const calc = (m) => {
+      const [y, mo] = m.month.split('-').map(Number);
+      const days = new Date(y, mo, 0).getDate();
+      const t = tariffFor(tariffs, m.month);
+      const charge = Math.min(m.elec.export / days, o.usable);
+      const need = (EVENING_SHARE * m.elec.import) / days;
+      const kwh = Math.min(charge * EFF, need) * factor * days;
+      return { kwh, eur: kwh * t.elec_import - (kwh / EFF) * t.elec_export, exp: m.elec.export, imp: m.elec.import };
+    };
+    let rows = Array.from({ length: 12 }, (_, i) => {
+      const mm = i + 1;
+      const own = latest(mm);
+      if (own) return { mm, src: 'actual', from: own.month, ...calc(own) };
+      const mirror = latest(13 - mm);
+      if (mirror) return { mm, src: 'mirror', from: mirror.month, ...calc(mirror) };
+      return { mm, src: 'avg' };
+    });
+    const known = rows.filter((r) => r.src !== 'avg');
+    if (!known.length) return null;
+    const avg = (k) => sum(known.map((r) => r[k])) / known.length;
+    rows = rows.map((r) => (r.src === 'avg' ? { ...r, kwh: avg('kwh'), eur: avg('eur'), exp: avg('exp'), imp: avg('imp') } : r));
+    const cost = o.price + (o.bebatIncluded ? 0 : o.bebat) + (o.type === 'vast' ? o.keuring : 0);
+    const yearEur = sum(rows.map((r) => r.eur));
+    const yearKwh = sum(rows.map((r) => r.kwh));
+    const yearExp = sum(rows.map((r) => r.exp));
+    const yearImp = sum(rows.map((r) => r.imp));
+    return { rows, cost, yearEur, yearKwh, yearExp, yearImp, actualMonths: rows.filter((r) => r.src === 'actual').length };
+  }
+
+  function batteryView(data) {
+    const o = loadBat();
+    if (!data.tariffs.length) {
+      return { body: '<p class="banner">Stel eerst je <a href="#/energy/tariffs">tarieven</a> in; de besparing hangt af van je afname- en injectieprijs.</p>', draw: () => {} };
+    }
+    const body = `
+      <section class="card accent-card">
+        <div class="trends-head"><h2>Thuisbatterij-simulatie</h2></div>
+        <p class="muted small" style="margin:4px 0 0">Wat een batterij met jouw verbruik en zonne-overschot zou opbrengen. Pas de prijs aan om aanbiedingen te vergelijken.</p>
+        <form id="bat" novalidate autocomplete="off" style="margin-top:10px">
+          <div class="field-row">
+            <div class="field"><label for="b-price">Prijs batterij (€)</label><input id="b-price" inputmode="decimal" value="${esc(dec(o.price))}"></div>
+            <div class="field"><label for="b-usable">Bruikbaar (kWh)</label><input id="b-usable" inputmode="decimal" value="${esc(dec(o.usable))}"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="b-bebat">Bebat-bijdrage (€)</label><input id="b-bebat" inputmode="decimal" value="${esc(dec(o.bebat))}"></div>
+            <div class="field" style="align-self:end"><label class="check"><input type="checkbox" id="b-bebat-in" ${o.bebatIncluded ? 'checked' : ''}> Zit al in de prijs</label></div>
+          </div>
+          <div class="field" style="margin-top:14px"><label for="b-type">Aansluiting</label>
+            <select id="b-type">${Object.entries(BAT_TYPES).map(([k, t]) => `<option value="${k}" ${k === o.type ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select>
+            <p class="hint" id="b-type-note"></p></div>
+          <div class="field" id="b-keuring-wrap"><label for="b-keuring">Keuring + aansluiting (€)</label><input id="b-keuring" inputmode="decimal" value="${esc(dec(o.keuring))}"></div>
+        </form>
+      </section>
+      <div id="bat-results"></div>`;
+
+    const draw = () => {
+      const $ = (id) => document.getElementById(id);
+      const read = () => ({
+        price: parseNum($('b-price').value) || 0,
+        usable: Math.max(0.5, parseNum($('b-usable').value) || BAT_DEFAULTS.usable),
+        bebat: parseNum($('b-bebat').value) || 0,
+        bebatIncluded: $('b-bebat-in').checked,
+        type: $('b-type').value,
+        keuring: parseNum($('b-keuring').value) || 0,
+      });
+      const renderResults = () => {
+        const cur = read();
+        saveBat(cur);
+        $('b-type-note').textContent = BAT_TYPES[cur.type].note;
+        $('b-keuring-wrap').hidden = cur.type !== 'vast';
+        const sim = simulateBattery(data.months, data.tariffs, cur);
+        const el = $('bat-results');
+        if (!sim) { el.innerHTML = '<p class="banner">Nog geen elektriciteitsgegevens om mee te rekenen.</p>'; return; }
+        const payback = sim.yearEur > 0 ? sim.cost / sim.yearEur : null;
+        const roi = sim.cost > 0 ? sim.yearEur / sim.cost : null;
+        const verdict = payback == null ? { level: 'high', t: 'Niet rendabel' }
+          : payback <= 6 ? { level: 'excellent', t: 'Zeer interessant' }
+            : payback <= 9 ? { level: 'good', t: 'Interessant' }
+              : payback <= 12 ? { level: 'fair', t: 'Twijfelachtig' } : { level: 'high', t: 'Weinig interessant' };
+        el.innerHTML = `
+          <section class="card hero">
+            <div class="row between"><div class="label">Besparing per jaar</div><span class="vbadge vbadge-${verdict.level}">${esc(verdict.t)}</span></div>
+            <div class="big num">${eur(sim.yearEur)}</div>
+            <div class="stats">
+              <div class="stat"><div class="k">Totale kost</div><div class="v num">${eur(sim.cost)}</div>
+                <div class="muted small">${cur.bebatIncluded ? 'Bebat inbegrepen' : `incl. ${eur(cur.bebat)} Bebat`}${cur.type === 'vast' ? ` + ${eur(cur.keuring)} keuring` : ''}</div></div>
+              <div class="stat"><div class="k">Terugverdiend in</div><div class="v num">${payback ? `${num(payback, 1)} jaar` : '—'}</div></div>
+              <div class="stat"><div class="k">Rendement per jaar</div><div class="v num">${roi != null ? `${num(roi * 100, 1)}%` : '—'}</div></div>
+              <div class="stat"><div class="k">Winst na 10 jaar</div><div class="v num ${sim.yearEur * 10 - sim.cost >= 0 ? 'gain' : 'loss'}">${eur(sim.yearEur * 10 - sim.cost)}</div></div>
+            </div>
+          </section>
+          <section class="card chart-card">
+            <h2>Besparing per maand</h2>
+            <div id="ch-bat"></div>
+            <p class="muted small">Volle kolommen: berekend met jouw gegevens van die maand. Vage kolommen: geschat (zelfde maand vorig jaar, of een maand met evenveel zon).</p>
+          </section>
+          <section class="card">
+            <h2>Met en zonder batterij (per jaar)</h2>
+            <dl class="kv" style="margin-top:10px">
+              <dt>Injectie nu</dt><dd>${kwh(sim.yearExp)}</dd>
+              <dt>Daarvan 's avonds zelf gebruikt</dt><dd>${kwh(sim.yearKwh)} (${num((sim.yearKwh / EFF / sim.yearExp) * 100, 0)}% van je injectie)</dd>
+              <dt>Afname van het net nu</dt><dd>${kwh(sim.yearImp)}</dd>
+              <dt>Afname met batterij</dt><dd>${kwh(sim.yearImp - sim.yearKwh)} (−${num((sim.yearKwh / sim.yearImp) * 100, 0)}%)</dd>
+            </dl>
+            ${table(['Maand', 'Injectie', 'Via batterij', 'Besparing'], sim.rows.map((r) => [`${monthShort(r.mm - 1)}${r.src === 'actual' ? '' : ' (geschat)'}`, kwh(r.exp), kwh(r.kwh), eur(r.eur)]))}
+          </section>
+          <p class="muted small">Aannames: ${num(cur.usable, 1)} kWh bruikbaar, ${num(EFF * 100, 0)}% rendement, ${num(EVENING_SHARE * 100, 0)}% van je afname valt 's avonds/'s nachts, correctie voor bewolkte dagen en verbruikspieken. Gerekend met je eigen tarieven (afname min gemiste injectievergoeding). Zonder premie; geen dynamisch tarief. Dit is een schatting op basis van maandtotalen.</p>`;
+        columnChart(document.getElementById('ch-bat'), {
+          labels: sim.rows.map((r) => monthShort(r.mm - 1)),
+          longLabels: sim.rows.map((r) => `${new Date(2000, r.mm - 1, 1).toLocaleDateString('nl-BE', { month: 'long' })}${r.src === 'actual' ? ` ${r.from.slice(0, 4)}` : ' (geschat)'}`),
+          rows: sim.rows.map((r) => ({ eur: r.eur })),
+          faded: sim.rows.map((r) => r.src !== 'actual'),
+          series: [{ key: 'eur', label: 'Besparing', color: 'var(--c1)' }],
+          format: eur, tickFormat: compactEur,
+        });
+      };
+      ['b-price', 'b-usable', 'b-bebat', 'b-keuring'].forEach((id) => $(id).addEventListener('input', renderResults));
+      ['b-bebat-in', 'b-type'].forEach((id) => $(id).addEventListener('change', renderResults));
+      renderResults();
+    };
+    return { body, draw };
   }
 
   // ---------- maandverbruik ----------
