@@ -1,0 +1,42 @@
+name: Energie-herinnering
+
+# Elke 1e van de maand om 20:00 Belgische tijd een herinnering via ntfy om de HomeWizard-gegevens in te geven.
+# GitHub rekent in UTC: 18:00 UTC in de zomer, 19:00 UTC in de winter. Beide staan
+# ingepland; de eerste stap laat enkel de run door die op 20u Brusselse tijd valt.
+on:
+  schedule:
+    - cron: '0 18 1 * *'
+    - cron: '0 19 1 * *'
+  workflow_dispatch:
+
+jobs:
+  herinnering:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+    steps:
+      - name: Juiste uur kiezen (zomer- of wintertijd)
+        id: tijd
+        run: |
+          offset=$(TZ=Europe/Brussels date +%z)   # +0100 of +0200
+          want="0 $((20 - 10#${offset:1:2})) 1 * *"
+          if [ "${{ github.event_name }}" != "schedule" ] || [ "${{ github.event.schedule }}" = "$want" ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "Niet het juiste uur voor de huidige tijdzone; overslaan."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.tijd.outputs.run == '1'
+      - uses: actions/setup-node@v4
+        if: steps.tijd.outputs.run == '1'
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        if: steps.tijd.outputs.run == '1'
+      - name: Herinnering versturen
+        if: steps.tijd.outputs.run == '1'
+        run: node scripts/energie-herinnering.mjs
