@@ -1023,7 +1023,7 @@ async function render() {
           case 'pin': return await priv.changePin();
           case 'lock': return await priv.lockNow();
           case 'import': return await priv.importView();
-          case 'pots': return parts[2] === 'import' ? await priv.potsImport() : await priv.pots();
+          case 'pots': return parts[2] === 'import' ? await priv.potsImport(params.get('d')) : await priv.pots();
           case 'pot': return await priv.potForm(parts[2]);
           default: return await priv.overview();
         }
