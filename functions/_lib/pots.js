@@ -2,7 +2,8 @@
 import { HttpError, json, readJson } from './http.js';
 import { requirePrivate } from './private.js';
 
-export const POT_GROUPS = ['Vaste kosten', 'Sparen & doelen', 'Kinderen', 'Beleggen'];
+// 'Maandelijkse kosten' zijn geen potjes maar rechtstreekse vaste lasten; ze tellen apart.
+export const POT_GROUPS = ['Vaste kosten', 'Sparen & doelen', 'Kinderen', 'Beleggen', 'Maandelijkse kosten'];
 
 function parsePot(b) {
   const name = String(b.name || '').trim().slice(0, 40);

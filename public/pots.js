@@ -1,13 +1,15 @@
 // € Privé: potjes — vaste maandelijkse reserveringen en spaardoelen (versie 1.0).
 import { barChart, legend } from './charts.js';
 
-export const POTS_VERSION = '1.1';
-const GROUP_COLOR = { 'Vaste kosten': 'var(--c1)', 'Sparen & doelen': 'var(--c2)', Kinderen: 'var(--c3)', Beleggen: 'var(--c4)' };
+export const POTS_VERSION = '1.2';
+const GROUP_COLOR = { 'Vaste kosten': 'var(--c1)', 'Sparen & doelen': 'var(--c2)', Kinderen: 'var(--c3)', Beleggen: 'var(--c4)', 'Maandelijkse kosten': 'var(--c5)' };
+const COSTS = 'Maandelijkse kosten';
 const GROUP_HINT = {
   'Vaste kosten': 'Geld opzij voor rekeningen die per jaar of per kwartaal komen.',
   'Sparen & doelen': 'Sparen voor iets dat je wilt doen of kopen.',
   Kinderen: 'Spaargeld en uitgaven voor de kinderen.',
   Beleggen: 'Vaste inleg in beleggingen.',
+  [COSTS]: 'Rekeningen die elke maand rechtstreeks betaald worden (geen potje).',
 };
 
 export function potsViews({ app, api, esc, money, num, toast, submitting, setChrome, gate, parseNum, LOCK_BUTTON }) {
@@ -34,9 +36,12 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
         return;
       }
 
-      const total = pots.reduce((s, p) => s + p.monthly, 0);
-      const perGroup = groups.map((g) => ({ g, list: pots.filter((p) => p.grp === g) })).filter((x) => x.list.length);
       const sumOf = (list) => list.reduce((s, p) => s + p.monthly, 0);
+      const costs = pots.filter((p) => p.grp === COSTS);
+      const total = sumOf(pots.filter((p) => p.grp !== COSTS));
+      const costTotal = sumOf(costs);
+      const allGroups = groups.map((g) => ({ g, list: pots.filter((p) => p.grp === g) })).filter((x) => x.list.length);
+      const perGroup = allGroups.filter(({ g }) => g !== COSTS);
       // Gedeelde potjes: de controle rekent met de volledige inleg (jouw deel ÷ jouw aandeel).
       const shareOf = (p) => (p.share > 0 && p.share < 1 ? p.share : 1);
       const potTotal = (p) => p.monthly / shareOf(p);
@@ -54,8 +59,18 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
             <div class="stats">
               ${perGroup.map(({ g, list }) => `<div class="stat"><div class="k"><i class="dot" style="background:${GROUP_COLOR[g]}"></i>${esc(g)}</div><div class="v num">${eur(sumOf(list))}</div></div>`).join('')}
             </div>
-            <p class="muted small" style="margin:10px 0 0">${eur(total * 12)} per jaar · ${pots.length} potjes</p>
+            <p class="muted small" style="margin:10px 0 0">${eur(total * 12)} per jaar · ${pots.length - costs.length} potjes</p>
           </section>
+
+          ${costs.length ? `
+          <section class="card">
+            <div class="stats">
+              <div class="stat"><div class="k"><i class="dot" style="background:${GROUP_COLOR[COSTS]}"></i>${esc(COSTS)}</div><div class="v num">${eur(costTotal)}</div></div>
+              <div class="stat"><div class="k">Potjes</div><div class="v num">${eur(total)}</div></div>
+              <div class="stat"><div class="k"><b>Samen vastgelegd</b></div><div class="v num"><b>${eur(costTotal + total)}</b></div></div>
+            </div>
+            <p class="muted small" style="margin:10px 0 0">Wat er elke maand vast vertrekt: rekeningen plus potjes.</p>
+          </section>` : ''}
 
           ${checks.length ? `
           <section class="card ${short.length ? 'accent-card' : ''}">
@@ -80,7 +95,7 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
               series: [{ key: 'v', label: 'Per maand' }], format: eur })}
           </section>
 
-          ${perGroup.map(({ g, list }) => `
+          ${allGroups.map(({ g, list }) => `
           <section class="card">
             <div class="trends-head"><h2 class="pot-group" style="--gc:${GROUP_COLOR[g]}">${esc(g)}</h2><b class="num">${eur(sumOf(list))}/maand</b></div>
             <p class="muted small" style="margin:4px 0 0">${esc(GROUP_HINT[g])}</p>
@@ -174,7 +189,7 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
     return { rows, errors };
   }
 
-  async function importView() {
+  async function importView(prefill) {
     await gate(async () => {
       setChrome('p-pots', 'private');
       const { pots, groups } = await api('private/pots');
@@ -195,7 +210,7 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       const f = document.getElementById('f');
       const btn = f.querySelector('button[type=submit]');
       let parsed = { rows: [], errors: [] };
-      f.text.addEventListener('input', () => {
+      const update = () => {
         parsed = parsePaste(f.text.value, groups);
         document.getElementById('prev').innerHTML = `
           ${parsed.errors.map((e) => `<p class="error">${esc(e)}</p>`).join('')}
@@ -204,7 +219,14 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
             <p class="muted small">Totaal ${eur(parsed.rows.reduce((s, r) => s + r.monthly, 0))} per maand</p>` : ''}`;
         btn.disabled = !parsed.rows.length || parsed.errors.length > 0;
         btn.textContent = parsed.rows.length ? `${parsed.rows.length} potjes importeren` : 'Importeren';
-      });
+      };
+      f.text.addEventListener('input', update);
+      // Een link met ?d=… vult de lijst al in; het adres wordt meteen opgeschoond.
+      if (prefill) {
+        f.text.value = prefill;
+        update();
+        history.replaceState(null, '', '#/private/pots/import');
+      }
       f.addEventListener('submit', (e) => {
         e.preventDefault();
         submitting(f, async () => {

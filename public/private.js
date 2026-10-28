@@ -143,7 +143,7 @@ export function privateViews({ app, api, esc, money, num, toast, setChrome, subm
     overview, changePin, lockNow,
     importView: () => finance.importView(),
     pots: () => pots.overview(),
-    potsImport: () => pots.importView(),
+    potsImport: (prefill) => pots.importView(prefill),
     potForm: (id) => pots.form(id),
   };
 }
