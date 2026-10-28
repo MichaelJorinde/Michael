@@ -349,3 +349,26 @@ details.tx-month summary { display: flex; justify-content: space-between; paddin
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
 .pot-group::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--gc); margin-right: 8px; vertical-align: 1px; }
 .pot-row { text-decoration: none; color: inherit; }
+
+/* ---------- rust: paginakoppen, uitleg en inklapbare blokken ---------- */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+.page-head .sub { color: var(--muted); font-size: .82rem; margin-top: 2px; }
+details.info { margin-top: 6px; }
+details.info > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; font-weight: 600; cursor: pointer; min-height: 32px; }
+details.info > summary::-webkit-details-marker { display: none; }
+details.info > summary::before { content: 'i'; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; border: 1.5px solid currentColor; font: italic 800 .68rem/1 Georgia, serif; }
+details.info[open] > summary { color: var(--text); }
+details.info > div { color: var(--muted); font-size: .85rem; padding: 2px 0 4px; }
+details.fold > summary { list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; min-height: 40px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::after { content: ''; flex: none; width: 8px; height: 8px; margin: 0 4px 4px 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .15s; }
+details.fold[open] > summary::after { transform: rotate(-135deg); margin-bottom: -4px; }
+details.fold > summary > :first-child { flex: 1; min-width: 0; }
+.spark.spark-sm { height: 40px; margin: 6px 0 4px; }
+.trend-line { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; color: var(--muted); }
+.trend-line b { color: var(--text); }
+.icon-only { width: 40px; height: 40px; padding: 0; display: inline-grid; place-items: center; }
+.month-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; }
+.month-row:last-child { border-bottom: 0; }
+.month-row .meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .8rem; color: var(--muted); margin-top: 2px; }
+.callout { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-weight: 700; }

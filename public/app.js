@@ -3,6 +3,7 @@ import { lineChart, barChart, legend } from './charts.js';
 import { energyViews } from './energy.js';
 import { privateViews } from './private.js';
 import { analyse } from './signals.js';
+import { pageHead, info } from './ui.js';
 
 const app = document.getElementById('app');
 const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy'), private: document.getElementById('tabbar-private') };
@@ -309,14 +310,11 @@ async function viewDashboard(refresh = false) {
   const latest = Math.max(...data.positions.map((p) => p.priceUpdatedAt || 0));
   app.innerHTML = `
     <div class="stack">
+      ${pageHead('Overzicht', `<button id="refresh" class="btn-ghost icon-only" type="button" aria-label="Koersen vernieuwen">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`,
+        `Koersen bijgewerkt ${esc(timeAgo(latest))}`)}
       ${ownerChips(data.owners)}
       ${data.totals.map(totalsCard).join('')}
-      <div class="row between">
-        <span class="muted small">Koersen bijgewerkt ${esc(timeAgo(latest))}</span>
-        <button id="refresh" class="btn-ghost btn-small" type="button">
-          <svg width="16" height="16" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Vernieuwen</button>
-      </div>
       <section class="card accent-card" id="trends-card"><div class="trends-head"><h2>Koersverloop</h2></div><div class="loading" style="padding:16px">Koersen laden…</div></section>
       ${personsCard(data.owners)}
       ${allocationCard(data.positions)}
@@ -466,7 +464,7 @@ const VERDICT_ICON = { excellent: '▼▼', good: '▼', fair: '●', high: '▲
 const verdictBadge = (v) => `<span class="vbadge vbadge-${v.level}"><span aria-hidden="true">${VERDICT_ICON[v.level]}</span> ${esc(v.title)}</span>`;
 
 // Mini-grafiek (laatste jaar) met 200-daags gemiddelde en gemiddelde aankoopprijs.
-function sparkline(points, avgPrice) {
+function sparkline(points, avgPrice, small = false) {
   const W = 300;
   const H = 64;
   const vals = points.flatMap((pt) => [pt.c, pt.ma200]).filter((v) => v != null);
@@ -486,7 +484,7 @@ function sparkline(points, avgPrice) {
     }).join('');
   };
   const line = path('c');
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+  return `<svg class="spark${small ? ' spark-sm' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <path d="${line}L${W},${H}L0,${H}Z" fill="var(--c1)" opacity=".12"/>
     ${avgPrice ? `<line x1="0" x2="${W}" y1="${y(avgPrice)}" y2="${y(avgPrice)}" class="spark-ref"/>` : ''}
     <path d="${path('ma200')}" fill="none" stroke="var(--c2)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
@@ -516,15 +514,14 @@ async function loadTrendsCard(positions) {
           <div class="grow"><b>${esc(p.ticker)}</b> <span class="num">${money(sig.last.c, p.currency)}</span></div>
           ${verdictBadge(sig.verdict)}
         </div>
-        ${sparkline(sig.year, p.avgPrice)}
-        <div class="trend-stats num">
-          <span>${pct(sig.fromHigh)} <small>t.o.v. 1j-hoogste</small></span>
-          <span>${sig.vsMa200 == null ? '—' : pct(sig.vsMa200)} <small>t.o.v. 200d-gem.</small></span>
-          <span class="${cls(sig.vsAvg)}">${sig.vsAvg == null ? '—' : pct(sig.vsAvg)} <small>t.o.v. jouw aankoop</small></span>
+        ${sparkline(sig.year, p.avgPrice, true)}
+        <div class="trend-line num">
+          <span><b>${pct(sig.fromHigh)}</b> v. jaartop</span>
+          ${sig.vsAvg == null ? '' : `<span><b class="${cls(sig.vsAvg)}">${pct(sig.vsAvg)}</b> v. jouw aankoop</span>`}
         </div>
       </a>`;
     }).join('')}
-    <p class="small muted" style="margin:8px 0 0">Blauw = koers · oranje stippellijn = 200-daags gemiddelde · grijze lijn = jouw gemiddelde aankoopprijs. Tik voor details.</p>`;
+    ${info('Blauwe lijn = koers van het voorbije jaar · oranje stippellijn = 200-daags gemiddelde · grijze lijn = jouw gemiddelde aankoopprijs. De kleur zegt hoe interessant bijkopen nu is: blauw uitstekend, groen goed, oranje redelijk, rood relatief hoog. Tik op een ETF voor details.', 'Hoe lees ik dit?')}`;
 }
 
 async function loadPriceCard(ticker, p) {
@@ -799,7 +796,7 @@ async function viewCharts() {
 
   app.innerHTML = `
     <div class="stack">
-      <h1>Grafieken${state.owner ? ` · ${esc(state.owner)}` : ''}</h1>
+      ${pageHead(`Grafieken${state.owner ? ` · ${esc(state.owner)}` : ''}`)}
       ${ownerChips(pf.owners)}
 
       <section class="card chart-card">
@@ -914,7 +911,7 @@ async function viewPurchases() {
     html += purchaseRow(p);
   }
   html += '</ul></section>';
-  app.innerHTML = `<h1>Historiek</h1>${html}`;
+  app.innerHTML = `${pageHead('Historiek', '<a class="btn btn-small" href="#/add">+ Aankoop</a>', `${purchases.length} aankopen`)}${html}`;
 }
 
 // ---------- views: account ----------

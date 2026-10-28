@@ -1,4 +1,5 @@
 // Energie: maandelijks totaalverbruik (HomeWizard), tarieven en overzicht per maand.
+import { pageHead, info } from './ui.js';
 import { columnChart, legend } from './charts.js';
 
 const UTIL = {
@@ -152,7 +153,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
         ${hasTariff && adv ? `<div class="stat"><div class="k">Saldo t.o.v. voorschot (${costs.length} mnd)</div><div class="v num ${cls(balance)}">${balance >= 0 ? '+' : '−'}${eur(Math.abs(balance))}</div><div class="muted small">${balance >= 0 ? 'je betaalt genoeg' : 'voorschot te laag'}</div></div>` : ''}
       </div>
       ${alert ? `<p class="banner" style="margin-top:12px">⚠️ Je verbruikte ${num(diff * 100, 0)}% meer per dag dan gemiddeld. Kijk in de HomeWizard-app of er 's nachts water blijft lopen (lekkende kraan of wc).</p>` : ''}
-      <p class="muted small" style="margin:10px 0 0">Kosten = verbruik × je waterprijs per m³ plus vaste kosten (zie Tarieven). Geef de vaste vergoeding van je waterfactuur in bij Tarieven voor een juistere vergelijking.</p>
+      ${info('Kosten = verbruik × je waterprijs per m³ plus vaste kosten (zie Tarieven). Geef de vaste vergoeding van je waterfactuur in bij Tarieven voor een juistere vergelijking. Een gemiddeld Vlaams gezin verbruikt zo\'n 100 liter per persoon per dag.')}
     </section>`;
   }
 
@@ -217,23 +218,15 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       const settleCard = st ? `
         <section class="card chart-card">
           <div class="chart-head"><h2>Eindafrekening</h2><a class="small" href="#/energy/settings">Voorschot ›</a></div>
-          <p class="muted small" style="margin:2px 0 0">${esc(monthName(st.start))} – ${esc(monthName(st.end))} · ${eur(st.advance)}/maand voor ${esc(coverLabel(st.covers))}</p>
+          <p class="muted small" style="margin:2px 0 0">${esc(monthName(st.start))} – ${esc(monthName(st.end))} · ${esc(coverLabel(st.covers))}</p>
           <div class="big num ${cls(st.balanceEnd)}" style="font-size:1.9rem;font-weight:800;margin-top:10px">${verdict(st.balanceEnd)}</div>
-          <p class="muted small" style="margin:0">Verwacht bij de eindafrekening</p>
           <div class="stats" style="margin-top:12px">
-            <div class="stat"><div class="k">Voorschot betaald (${st.monthsKnown} mnd)</div><div class="v num">${eur(st.paidSoFar)}</div></div>
-            <div class="stat"><div class="k">Werkelijke kosten</div><div class="v num">${eur(st.costSoFar)}</div></div>
-            <div class="stat"><div class="k">Saldo nu</div><div class="v num ${cls(st.balanceNow)}">${st.balanceNow >= 0 ? '+' : '−'}${eur(Math.abs(st.balanceNow))}</div></div>
-            <div class="stat"><div class="k">Prognose 12 maanden</div><div class="v num">${eur(st.projected)}</div><div class="muted small">voorschot: ${eur(st.paidTotal)}</div></div>
+            <div class="stat"><div class="k">Saldo nu (${st.monthsKnown} mnd)</div><div class="v num ${cls(st.balanceNow)}">${st.balanceNow >= 0 ? '+' : '−'}${eur(Math.abs(st.balanceNow))}</div></div>
+            <div class="stat"><div class="k">Prognose 12 mnd</div><div class="v num">${eur(st.projected)}</div><div class="muted small">voorschot ${eur(st.paidTotal)}</div></div>
           </div>
-          <div class="meter" role="img" aria-label="Kosten ten opzichte van betaald voorschot">
-            <span style="width:${Math.min(100, (st.costSoFar / Math.max(st.paidSoFar, st.costSoFar)) * 100)}%;background:var(--c1)"></span>
-          </div>
-          <p class="muted small" style="margin:4px 0 0">Balk: kosten tot nu (${eur(st.costSoFar)}) t.o.v. betaald voorschot (${eur(st.paidSoFar)}).</p>
-          <h2 style="margin-top:16px">Kosten per maand t.o.v. voorschot</h2>
+          <div id="ch-s" style="margin-top:12px"></div>
           ${legend(settleSeries)}
-          <div id="ch-s"></div>
-          <p class="muted small">Stippellijn = maandelijks voorschot. Vage kolommen zijn geschat: met dezelfde maand vorig jaar, of anders met een vergelijkbare maand uit het stookseizoen (oktober ≈ april, november ≈ maart, december ≈ februari). Hoe meer maanden je ingeeft, hoe juister de prognose.</p>
+          ${info(`Je betaalt ${eur(st.advance)} per maand voorschot. Tot nu betaalde je ${eur(st.paidSoFar)} en verbruikte je voor ${eur(st.costSoFar)}. De stippellijn in de grafiek is het voorschot; vage kolommen zijn geschat met dezelfde maand vorig jaar, of anders met een vergelijkbare maand uit het stookseizoen (oktober ≈ april, november ≈ maart, december ≈ februari). Hoe meer maanden je ingeeft, hoe juister de prognose.`, 'Hoe wordt dit berekend?')}
           ${table(['Maand', 'Kosten', 'Voorschot', 'Verschil'], st.rows.map((r) => [`${monthShort(Number(r.month.slice(5)) - 1)} ${r.month.slice(2, 4)}${r.actual ? '' : ` (schatting, ${r.basis})`}`, eur(r.cost), eur(st.advance), `${st.advance - r.cost >= 0 ? '+' : '−'}${eur(Math.abs(st.advance - r.cost))}`]))}
         </section>` : (hasTariff && !data.settings?.advance ? '<p class="banner">Stel je <a href="#/energy/settings">maandelijks voorschot</a> in om je eindafrekening te volgen.</p>' : '');
       body = `
@@ -342,7 +335,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       };
     }
 
-    app.innerHTML = `<div class="stack"><div class="row between"><h1>Energie</h1><a class="btn btn-small" href="#/energy/add">+ Maand</a></div>${chips}${body}</div>`;
+    app.innerHTML = `<div class="stack">${pageHead('Energie', '<a class="btn btn-small" href="#/energy/add">+ Maand</a>')}${chips}${body}</div>`;
     drawCharts();
     app.querySelectorAll('.chip[data-util]').forEach((b) => b.addEventListener('click', () => {
       pref.util = b.dataset.util;
@@ -413,10 +406,11 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       return { body: '<p class="banner">Stel eerst je <a href="#/energy/tariffs">tarieven</a> in; de besparing hangt af van je afname- en injectieprijs.</p>', draw: () => {} };
     }
     const body = `
-      <section class="card accent-card">
-        <div class="trends-head"><h2>Thuisbatterij-simulatie</h2></div>
-        <p class="muted small" style="margin:4px 0 0">Wat een batterij met jouw verbruik en zonne-overschot zou opbrengen. Pas de prijs aan om aanbiedingen te vergelijken.</p>
-        <form id="bat" novalidate autocomplete="off" style="margin-top:10px">
+      <div id="bat-results"></div>
+      <section class="card">
+        <details class="fold" id="bat-fold">
+        <summary><div><h2>Batterij aanpassen</h2><div class="muted small" id="bat-sum"></div></div></summary>
+        <form id="bat" novalidate autocomplete="off" style="margin-top:6px">
           <div class="field-row">
             <div class="field"><label for="b-price">Prijs batterij (€)</label><input id="b-price" inputmode="decimal" value="${esc(dec(o.price))}"></div>
             <div class="field"><label for="b-usable">Bruikbaar (kWh)</label><input id="b-usable" inputmode="decimal" value="${esc(dec(o.usable))}"></div>
@@ -430,8 +424,8 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
             <p class="hint" id="b-type-note"></p></div>
           <div class="field" id="b-keuring-wrap"><label for="b-keuring">Keuring + aansluiting (€)</label><input id="b-keuring" inputmode="decimal" value="${esc(dec(o.keuring))}"></div>
         </form>
-      </section>
-      <div id="bat-results"></div>`;
+        </details>
+      </section>`;
 
     const draw = () => {
       const $ = (id) => document.getElementById(id);
@@ -448,6 +442,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
         saveBat(cur);
         $('b-type-note').textContent = BAT_TYPES[cur.type].note;
         $('b-keuring-wrap').hidden = cur.type !== 'vast';
+        $('bat-sum').textContent = `${eur(cur.price)} · ${num(cur.usable, 1)} kWh · ${BAT_TYPES[cur.type].label}`;
         const sim = simulateBattery(data.months, data.tariffs, cur);
         const el = $('bat-results');
         if (!sim) { el.innerHTML = '<p class="banner">Nog geen elektriciteitsgegevens om mee te rekenen.</p>'; return; }
@@ -459,7 +454,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
               : payback <= 12 ? { level: 'fair', t: 'Twijfelachtig' } : { level: 'high', t: 'Weinig interessant' };
         el.innerHTML = `
           <section class="card hero">
-            <div class="row between"><div class="label">Besparing per jaar</div><span class="vbadge vbadge-${verdict.level}">${esc(verdict.t)}</span></div>
+            <div class="row between"><div class="label">Thuisbatterij · besparing per jaar</div><span class="vbadge vbadge-${verdict.level}">${esc(verdict.t)}</span></div>
             <div class="big num">${eur(sim.yearEur)}</div>
             <div class="stats">
               <div class="stat"><div class="k">Totale kost</div><div class="v num">${eur(sim.cost)}</div>
@@ -472,7 +467,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           <section class="card chart-card">
             <h2>Besparing per maand</h2>
             <div id="ch-bat"></div>
-            <p class="muted small">Volle kolommen: berekend met jouw gegevens van die maand. Vage kolommen: geschat (zelfde maand vorig jaar, of een maand met evenveel zon).</p>
+            ${info('Volle kolommen: berekend met jouw gegevens van die maand. Vage kolommen: geschat (zelfde maand vorig jaar, of een maand met evenveel zon).')}
           </section>
           <section class="card">
             <h2>Met en zonder batterij (per jaar)</h2>
@@ -484,7 +479,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
             </dl>
             ${table(['Maand', 'Injectie', 'Via batterij', 'Besparing'], sim.rows.map((r) => [`${monthShort(r.mm - 1)}${r.src === 'actual' ? '' : ' (geschat)'}`, kwh(r.exp), kwh(r.kwh), eur(r.eur)]))}
           </section>
-          <p class="muted small">Aannames: ${num(cur.usable, 1)} kWh bruikbaar, ${num(EFF * 100, 0)}% rendement, ${num(EVENING_SHARE * 100, 0)}% van je afname valt 's avonds/'s nachts, correctie voor bewolkte dagen en verbruikspieken. Gerekend met je eigen tarieven (afname min gemiste injectievergoeding). Zonder premie; geen dynamisch tarief. Dit is een schatting op basis van maandtotalen.</p>`;
+          ${info(`Aannames: ${num(cur.usable, 1)} kWh bruikbaar, ${num(EFF * 100, 0)}% rendement, ${num(EVENING_SHARE * 100, 0)}% van je afname valt 's avonds/'s nachts, correctie voor bewolkte dagen en verbruikspieken. Gerekend met je eigen tarieven (afname min gemiste injectievergoeding). Zonder premie; geen dynamisch tarief. Dit is een schatting op basis van maandtotalen.`, 'Aannames van de simulatie')}`;
         columnChart(document.getElementById('ch-bat'), {
           labels: sim.rows.map((r) => monthShort(r.mm - 1)),
           longLabels: sim.rows.map((r) => `${new Date(2000, r.mm - 1, 1).toLocaleDateString('nl-BE', { month: 'long' })}${r.src === 'actual' ? ` ${r.from.slice(0, 4)}` : ' (geschat)'}`),
@@ -592,18 +587,19 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     }
     app.innerHTML = `
       <div class="stack">
-        <div class="row between"><h1>Per maand</h1>
-          <div class="row"><a class="btn btn-small btn-ghost" href="#/energy/import">Importeren</a><a class="btn btn-small" href="#/energy/add">+ Maand</a></div></div>
-        ${data.months.slice().reverse().map((m) => `
-          <a class="card position" href="#/energy/month/${m.month}">
-            <div class="row between"><b>${esc(monthName(m.month))}</b><b class="num">${eur(m.total)}</b></div>
-            <dl class="kv" style="margin-top:8px">
-              ${m.elec ? `<dt>Elektriciteit</dt><dd>${kwh(m.elec.import)} afname · ${kwh(m.elec.export)} injectie · <b>${eur(m.elec.cost)}</b></dd>` : ''}
-              ${m.gas ? `<dt>Gas</dt><dd>${m3(m.gas.usage)} · <b>${eur(m.gas.cost)}</b></dd>` : ''}
-              ${m.water ? `<dt>Water</dt><dd>${liter(m.water.usage)} · <b>${eur(m.water.cost)}</b></dd>` : ''}
-            </dl>
-            ${m.note ? `<div class="muted small">${esc(m.note)}</div>` : ''}
-          </a>`).join('')}
+        ${pageHead('Per maand', '<a class="btn btn-small btn-ghost" href="#/energy/import">Importeren</a><a class="btn btn-small" href="#/energy/add">+ Maand</a>')}
+        <section class="card" style="padding-top:4px;padding-bottom:4px">${data.months.slice().reverse().map((m) => `
+          <a class="month-row" href="#/energy/month/${m.month}">
+            <div class="grow"><b style="text-transform:capitalize">${esc(monthName(m.month))}</b>
+              <div class="meta num">
+                ${m.elec ? `<span>⚡ ${kwh(m.elec.import)} · ↩ ${kwh(m.elec.export)}</span>` : ''}
+                ${m.gas ? `<span>🔥 ${m3(m.gas.usage)}</span>` : ''}
+                ${m.water ? `<span>💧 ${liter(m.water.usage)}</span>` : ''}
+              </div>
+              ${m.note ? `<div class="muted small">${esc(m.note)}</div>` : ''}</div>
+            <b class="num">${eur(m.total)}</b>
+          </a>`).join('')}</section>
+        ${info('⚡ afname van het net · ↩ injectie (zonnepanelen) · 🔥 gas · 💧 water. Tik op een maand om ze aan te passen.', 'Legende')}
       </div>`;
   }
 
@@ -732,7 +728,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const { tariffs: list } = await api('energy/tariffs');
     app.innerHTML = `
       <div class="stack">
-        <div class="row between"><h1>Tarieven</h1><a class="btn btn-small" href="#/energy/tariff/new">+ Tarief</a></div>
+        ${pageHead('Tarieven', '<a class="btn btn-small" href="#/energy/tariff/new">+ Tarief</a>')}
         <a class="card position" href="#/energy/settings"><div class="row between"><b>Voorschot &amp; eindafrekening</b><span class="muted small">Instellen ›</span></div></a>
         <p class="muted small">Verandert een prijs, voeg dan een nieuw tarief toe met de datum vanaf wanneer het geldt. Het geldt vanaf de maand waarin die datum valt; oudere maanden houden hun tarief.</p>
         ${list.length ? list.map((t) => `

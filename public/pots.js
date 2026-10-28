@@ -1,7 +1,7 @@
 // € Privé: potjes — vaste maandelijkse reserveringen en spaardoelen (versie 1.0).
-import { barChart, legend } from './charts.js';
+import { pageHead, info } from './ui.js';
 
-export const POTS_VERSION = '1.2';
+export const POTS_VERSION = '1.3';
 const GROUP_COLOR = { 'Vaste kosten': 'var(--c1)', 'Sparen & doelen': 'var(--c2)', Kinderen: 'var(--c3)', Beleggen: 'var(--c4)', 'Maandelijkse kosten': 'var(--c5)' };
 const COSTS = 'Maandelijkse kosten';
 const GROUP_HINT = {
@@ -23,7 +23,7 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       if (!pots.length) {
         app.innerHTML = `
           <div class="stack">
-            <div class="row between"><h1>Potjes</h1>${LOCK_BUTTON}</div>
+            ${pageHead('Potjes', LOCK_BUTTON)}
             <section class="card accent-card stack">
               <h2>Je potjes in één overzicht</h2>
               <p>Zet hier elk bedrag dat je maandelijks opzij zet: voor jaarlijkse rekeningen, spaardoelen, de kinderen of beleggen. Geef bij een potje ook de verwachte jaarkost op, dan zie je of het potje volstaat.</p>
@@ -49,10 +49,19 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       const sharedLine = (p) => (shareOf(p) < 1
         ? `<div class="muted small num">Gedeeld: jij ${eur(p.monthly)} (${num(shareOf(p) * 100, 0)}%) · samen ${eur(potTotal(p))}/maand</div>` : '');
       const short = checks.filter((c) => c.gap > 0.5);
+      const checkRow = ({ p, yearly, gap }) => `
+              <li class="purchase">
+                <div class="grow"><b>${esc(p.name)}</b>
+                  <div class="muted small num">${eur(yearly)} ${shareOf(p) < 1 ? 'samen ' : ''}opzij · nodig ${eur(p.yearly_cost)}</div>
+                  <div class="meter"><span style="width:${Math.min(100, (yearly / p.yearly_cost) * 100)}%;background:${gap > 0.5 ? 'var(--v-high)' : 'var(--v-good)'}"></span></div></div>
+                <div class="num" style="text-align:right">${gap > 0.5
+                  ? `<b class="loss">+${eur(gap / 12)}</b><div class="muted small">/maand${shareOf(p) < 1 ? ` samen<br>jij +${eur((gap / 12) * shareOf(p))}` : ''}</div>`
+                  : '<span class="vbadge vbadge-good">✓</span>'}</div>
+              </li>`;
 
       app.innerHTML = `
         <div class="stack">
-          <div class="row between"><h1>Potjes</h1>${LOCK_BUTTON}</div>
+          ${pageHead('Potjes', LOCK_BUTTON)}
           <section class="card hero">
             <div class="label">Per maand opzij</div>
             <div class="big num">${eur(total)}</div>
@@ -75,35 +84,23 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
           ${checks.length ? `
           <section class="card ${short.length ? 'accent-card' : ''}">
             <div class="trends-head"><h2>Volstaat je potje?</h2>${short.length ? `<span class="vbadge vbadge-high">▲ ${short.length} te krap</span>` : '<span class="vbadge vbadge-good">✓ alles gedekt</span>'}</div>
-            <p class="muted small" style="margin:4px 0 0">Maandbedrag × 12 tegenover de verwachte jaarkost.</p>
-            <ul class="list">${checks.sort((a, b) => b.gap - a.gap).map(({ p, yearly, gap }) => `
-              <li class="purchase">
-                <div class="grow"><b>${esc(p.name)}</b>
-                  <div class="muted small num">${eur(yearly)} per jaar ${shareOf(p) < 1 ? 'samen ' : ''}opzij · nodig ${eur(p.yearly_cost)}</div>
-                  ${sharedLine(p)}
-                  <div class="meter"><span style="width:${Math.min(100, (yearly / p.yearly_cost) * 100)}%;background:${gap > 0.5 ? 'var(--v-high)' : 'var(--v-good)'}"></span></div></div>
-                <div class="num" style="text-align:right">${gap > 0.5
-                  ? `<span class="vbadge vbadge-high">▲ tekort</span><div class="small"><b>+${eur(gap / 12)}</b>/maand${shareOf(p) < 1 ? ' samen' : ''}</div>${shareOf(p) < 1 ? `<div class="muted small">jij +${eur((gap / 12) * shareOf(p))}</div>` : ''}`
-                  : '<span class="vbadge vbadge-good">✓ gedekt</span>'}</div>
-              </li>`).join('')}</ul>
+            ${short.length ? `<ul class="list">${short.sort((a, b) => b.gap - a.gap).map(checkRow).join('')}</ul>` : ''}
+            ${checks.length > short.length ? `<details class="fold"><summary><span class="small muted" style="font-weight:700">✓ ${checks.length - short.length} potje${checks.length - short.length === 1 ? '' : 's'} gedekt</span></summary>
+              <ul class="list">${checks.filter((c) => c.gap <= 0.5).map(checkRow).join('')}</ul></details>` : ''}
+            ${info('Per potje: maandbedrag × 12 tegenover de verwachte jaarkost die je bij het potje opgaf. Bij een gedeeld potje telt de inleg van jullie samen.')}
           </section>` : ''}
 
-          <section class="card chart-card">
-            <h2>Verdeling</h2>
-            ${legend(perGroup.map(({ g }) => ({ label: g, color: GROUP_COLOR[g] })))}
-            ${barChart({ items: perGroup.map(({ g, list }) => ({ label: g, sub: `${num((sumOf(list) / total) * 100, 0)}%`, color: GROUP_COLOR[g], values: { v: sumOf(list) } })),
-              series: [{ key: 'v', label: 'Per maand' }], format: eur })}
-          </section>
-
           ${allGroups.map(({ g, list }) => `
-          <section class="card">
-            <div class="trends-head"><h2 class="pot-group" style="--gc:${GROUP_COLOR[g]}">${esc(g)}</h2><b class="num">${eur(sumOf(list))}/maand</b></div>
-            <p class="muted small" style="margin:4px 0 0">${esc(GROUP_HINT[g])}</p>
+          <section class="card" style="padding-top:8px;padding-bottom:8px">
+            <details class="fold">
+            <summary><div class="row between"><b class="pot-group" style="--gc:${GROUP_COLOR[g]}">${esc(g)} <span class="muted small" style="font-weight:600">· ${list.length}</span></b><b class="num">${eur(sumOf(list))}</b></div></summary>
+            <p class="muted small" style="margin:0">${esc(GROUP_HINT[g])}</p>
             <ul class="list">${list.map((p) => `
               <li><a class="purchase pot-row" href="#/private/pot/${p.id}">
                 <div class="grow"><b>${esc(p.name)}</b>${shareOf(p) < 1 ? ' <span class="owner-tag">gedeeld</span>' : ''}${p.purpose ? `<div class="muted small">${esc(p.purpose)}</div>` : ''}${sharedLine(p)}</div>
                 <div class="num" style="text-align:right"><b>${eur(p.monthly)}</b><div class="muted small">${eur(p.monthly * 12)}/jaar</div></div>
               </a></li>`).join('')}</ul>
+            </details>
           </section>`).join('')}
 
           <div class="row"><a class="btn grow" href="#/private/pot/new">+ Potje</a><a class="btn btn-ghost grow" href="#/private/pots/import">Plakken</a></div>
