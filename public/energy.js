@@ -119,6 +119,43 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     return { elec, gas, water, total: parts.length ? sum(parts) : null };
   }
 
+  // Water opvolgen: liter per dag, vergelijking met eerdere maanden en kosten t.o.v. het watervoorschot.
+  function waterCard(allMonths, s, hasTariff) {
+    const w = allMonths.filter((m) => m.water);
+    const adv = s?.water_advance || 0;
+    if (!w.length) {
+      return `<section class="card accent-card stack">
+        <h2>Water opvolgen</h2>
+        <p>Geef vanaf nu elke maand je waterverbruik in liter in, uit de HomeWizard Watermeter. Dan zie je hier je verbruik per dag, ongewone pieken (bv. een lek) en of je ${adv ? `voorschot van ${eur(adv)}/maand` : 'voorschot'} volstaat.</p>
+        <a class="btn" href="#/energy/month/${prevMonth()}">Water van ${esc(monthName(prevMonth()))} ingeven</a>
+      </section>`;
+    }
+    const days = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate();
+    const perDay = (m) => m.water.usage / days(m.month);
+    const last = w[w.length - 1];
+    const prev = w.slice(0, -1);
+    const avgPrev = prev.length ? sum(prev.map(perDay)) / prev.length : null;
+    const diff = avgPrev ? perDay(last) / avgPrev - 1 : null;
+    const alert = diff != null && diff > 0.25;
+    const costs = w.map((m) => m.water.cost).filter((c) => c != null);
+    const costSoFar = sum(costs);
+    const paid = adv * costs.length;
+    const balance = paid - costSoFar;
+    return `<section class="card ${alert ? 'accent-card' : ''}">
+      <div class="chart-head"><h2>Water opvolgen</h2><a class="small" href="#/energy/settings">Voorschot ›</a></div>
+      <p class="muted small" style="margin:2px 0 0">Laatste maand: ${esc(monthName(last.month))}</p>
+      <div class="stats" style="margin-top:10px">
+        <div class="stat"><div class="k">Per dag</div><div class="v num">${num(perDay(last), 0)} L</div>
+          ${diff != null ? `<div class="small ${diff > 0.05 ? 'loss' : diff < -0.05 ? 'gain' : 'muted'}">${diff >= 0 ? '+' : '−'}${num(Math.abs(diff) * 100, 0)}% t.o.v. gemiddeld</div>` : '<div class="muted small">eerste maand</div>'}</div>
+        <div class="stat"><div class="k">Deze maand</div><div class="v num">${liter(last.water.usage)}</div><div class="muted small">${num(last.water.usage / 1000, 1)} m³</div></div>
+        ${hasTariff ? `<div class="stat"><div class="k">Kosten deze maand</div><div class="v num">${eur(last.water.cost)}</div>${adv ? `<div class="muted small">voorschot ${eur(adv)}</div>` : ''}</div>` : ''}
+        ${hasTariff && adv ? `<div class="stat"><div class="k">Saldo t.o.v. voorschot (${costs.length} mnd)</div><div class="v num ${cls(balance)}">${balance >= 0 ? '+' : '−'}${eur(Math.abs(balance))}</div><div class="muted small">${balance >= 0 ? 'je betaalt genoeg' : 'voorschot te laag'}</div></div>` : ''}
+      </div>
+      ${alert ? `<p class="banner" style="margin-top:12px">⚠️ Je verbruikte ${num(diff * 100, 0)}% meer per dag dan gemiddeld. Kijk in de HomeWizard-app of er 's nachts water blijft lopen (lekkende kraan of wc).</p>` : ''}
+      <p class="muted small" style="margin:10px 0 0">Kosten = verbruik × je waterprijs per m³ plus vaste kosten (zie Tarieven). Geef de vaste vergoeding van je waterfactuur in bij Tarieven voor een juistere vergelijking.</p>
+    </section>`;
+  }
+
   const table = (head, rows) => `
     <details class="table-view"><summary>Toon als tabel</summary>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
@@ -266,6 +303,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           </div>
         </section>
         ${tariffBanner}
+        ${util === 'water' ? waterCard(data.months, data.settings, hasTariff) : ''}
         ${have.length ? `
         <section class="card chart-card">
           <h2>Verbruik per maand</h2>
@@ -660,6 +698,9 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
             ${Object.entries(UTIL).map(([k, u]) => `
               <label class="check"><input type="checkbox" name="covers" value="${k}" ${covers.includes(k) ? 'checked' : ''}> ${u.label}</label>`).join('')}
           </fieldset>
+          <div class="field" style="margin-top:14px"><label for="water_advance">Watervoorschot per maand (€)</label>
+            <input id="water_advance" name="water_advance" inputmode="decimal" value="${esc(dec(s.water_advance || ''))}" placeholder="bv. 40">
+            <p class="hint">Apart voorschot voor water, bv. Farys: €120 per kwartaal = €40 per maand. Laat leeg als water in het voorschot hierboven zit.</p></div>
           <div class="field" style="margin-top:14px"><label for="period_start">Afrekeningsperiode start in</label>
             <input id="period_start" name="period_start" type="month" value="${esc(s.period_start)}" required>
             <p class="hint">De eerste maand van de 12 maanden die je eindafrekening dekt (zie je vorige afrekening). Het jaar maakt niet uit; de periode schuift elk jaar mee.</p></div>
@@ -674,6 +715,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           advance: f.advance.value.trim() === '' ? 0 : parseNum(f.advance.value),
           covers: [...f.querySelectorAll('input[name=covers]:checked')].map((c) => c.value),
           period_start: f.period_start.value,
+          water_advance: f.water_advance.value.trim() === '' ? 0 : parseNum(f.water_advance.value),
         } });
         pref.util = 'total';
         toast('Voorschot opgeslagen');
