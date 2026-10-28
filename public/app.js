@@ -1057,13 +1057,14 @@ async function init() {
     if (res.ok) state.user = (await res.json()).user;
   } catch { /* offline */ }
   window.addEventListener('hashchange', render);
-  // App naar de achtergrond: € Privé meteen vergrendelen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && state.section === 'private') {
-      lockPrivate();
-      if (location.hash.startsWith('#/private')) app.innerHTML = '';
-    }
-    if (document.visibilityState === 'visible' && state.section === 'private' && location.hash.startsWith('#/private')) render();
+  // Wisselen naar een andere app vergrendelt € Privé niet meer: de ontgrendeling vervalt pas
+  // na 10 minuten zonder activiteit (server). Bij terugkeer enkel de pincode vragen als die tijd om is.
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || state.section !== 'private' || !location.hash.startsWith('#/private')) return;
+    try {
+      const s = await api('private/status');
+      if (!s.unlocked) render();
+    } catch { /* offline */ }
   });
   // Een tab aantikken waarvan het adres al open staat, laadt het scherm opnieuw.
   document.querySelectorAll('.tabbar a, #sections a').forEach((a) => a.addEventListener('click', (e) => {
