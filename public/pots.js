@@ -1,7 +1,7 @@
 // € Privé: potjes — vaste maandelijkse reserveringen en spaardoelen (versie 1.0).
 import { barChart, legend } from './charts.js';
 
-export const POTS_VERSION = '1.0';
+export const POTS_VERSION = '1.1';
 const GROUP_COLOR = { 'Vaste kosten': 'var(--c1)', 'Sparen & doelen': 'var(--c2)', Kinderen: 'var(--c3)', Beleggen: 'var(--c4)' };
 const GROUP_HINT = {
   'Vaste kosten': 'Geld opzij voor rekeningen die per jaar of per kwartaal komen.',
@@ -37,7 +37,12 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       const total = pots.reduce((s, p) => s + p.monthly, 0);
       const perGroup = groups.map((g) => ({ g, list: pots.filter((p) => p.grp === g) })).filter((x) => x.list.length);
       const sumOf = (list) => list.reduce((s, p) => s + p.monthly, 0);
-      const checks = pots.filter((p) => p.yearly_cost > 0).map((p) => ({ p, yearly: p.monthly * 12, gap: p.yearly_cost - p.monthly * 12 }));
+      // Gedeelde potjes: de controle rekent met de volledige inleg (jouw deel ÷ jouw aandeel).
+      const shareOf = (p) => (p.share > 0 && p.share < 1 ? p.share : 1);
+      const potTotal = (p) => p.monthly / shareOf(p);
+      const checks = pots.filter((p) => p.yearly_cost > 0).map((p) => ({ p, yearly: potTotal(p) * 12, gap: p.yearly_cost - potTotal(p) * 12 }));
+      const sharedLine = (p) => (shareOf(p) < 1
+        ? `<div class="muted small num">Gedeeld: jij ${eur(p.monthly)} (${num(shareOf(p) * 100, 0)}%) · samen ${eur(potTotal(p))}/maand</div>` : '');
       const short = checks.filter((c) => c.gap > 0.5);
 
       app.innerHTML = `
@@ -59,10 +64,11 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
             <ul class="list">${checks.sort((a, b) => b.gap - a.gap).map(({ p, yearly, gap }) => `
               <li class="purchase">
                 <div class="grow"><b>${esc(p.name)}</b>
-                  <div class="muted small num">${eur(yearly)} per jaar opzij · nodig ${eur(p.yearly_cost)}</div>
+                  <div class="muted small num">${eur(yearly)} per jaar ${shareOf(p) < 1 ? 'samen ' : ''}opzij · nodig ${eur(p.yearly_cost)}</div>
+                  ${sharedLine(p)}
                   <div class="meter"><span style="width:${Math.min(100, (yearly / p.yearly_cost) * 100)}%;background:${gap > 0.5 ? 'var(--v-high)' : 'var(--v-good)'}"></span></div></div>
                 <div class="num" style="text-align:right">${gap > 0.5
-                  ? `<span class="vbadge vbadge-high">▲ tekort</span><div class="small"><b>+${eur(gap / 12)}</b>/maand</div>`
+                  ? `<span class="vbadge vbadge-high">▲ tekort</span><div class="small"><b>+${eur(gap / 12)}</b>/maand${shareOf(p) < 1 ? ' samen' : ''}</div>${shareOf(p) < 1 ? `<div class="muted small">jij +${eur((gap / 12) * shareOf(p))}</div>` : ''}`
                   : '<span class="vbadge vbadge-good">✓ gedekt</span>'}</div>
               </li>`).join('')}</ul>
           </section>` : ''}
@@ -80,7 +86,7 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
             <p class="muted small" style="margin:4px 0 0">${esc(GROUP_HINT[g])}</p>
             <ul class="list">${list.map((p) => `
               <li><a class="purchase pot-row" href="#/private/pot/${p.id}">
-                <div class="grow"><b>${esc(p.name)}</b>${p.purpose ? `<div class="muted small">${esc(p.purpose)}</div>` : ''}</div>
+                <div class="grow"><b>${esc(p.name)}</b>${shareOf(p) < 1 ? ' <span class="owner-tag">gedeeld</span>' : ''}${p.purpose ? `<div class="muted small">${esc(p.purpose)}</div>` : ''}${sharedLine(p)}</div>
                 <div class="num" style="text-align:right"><b>${eur(p.monthly)}</b><div class="muted small">${eur(p.monthly * 12)}/jaar</div></div>
               </a></li>`).join('')}</ul>
           </section>`).join('')}
@@ -101,7 +107,8 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       setChrome('p-pots', 'private');
       const { pots, groups } = await api('private/pots');
       const isNew = id === 'new';
-      const p = isNew ? { name: '', monthly: '', grp: 'Vaste kosten', yearly_cost: '', purpose: '' } : pots.find((x) => x.id === Number(id));
+      const p = isNew ? { name: '', monthly: '', grp: 'Vaste kosten', yearly_cost: '', purpose: '', share: 1 } : pots.find((x) => x.id === Number(id));
+      const shared = p.share > 0 && p.share < 1;
       if (!p) { app.innerHTML = '<div class="empty">Potje niet gevonden.</div>'; return; }
       app.innerHTML = `
         <section class="card stack">
@@ -117,16 +124,24 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
               <input id="yearly_cost" name="yearly_cost" inputmode="decimal" value="${esc(dec(p.yearly_cost))}">
               <p class="hint">Bv. de jaarlijkse aanslag of premie. Dan zie je of dit potje volstaat.</p></div>
             <div class="field"><label for="purpose">Waarvoor (optioneel)</label><input id="purpose" name="purpose" value="${esc(p.purpose || '')}" maxlength="80"></div>
+            <fieldset class="field-group"><legend>Gedeeld potje</legend>
+              <label class="check"><input type="checkbox" id="shared" ${shared ? 'checked' : ''}> Iemand anders legt ook in dit potje in</label>
+              <div class="field" id="share-wrap" ${shared ? '' : 'hidden'}><label for="share">Jouw aandeel (%)</label>
+                <input id="share" name="share" inputmode="decimal" value="${shared ? num(p.share * 100, 0) : 50}">
+                <p class="hint">Bv. 50% als je partner evenveel inlegt. "Per maand" hierboven is wat jij inlegt; de controle rekent met het volledige potje.</p></div>
+            </fieldset>
             <div class="field" style="margin-top:16px"><button class="btn-block" type="submit">Opslaan</button></div>
             ${isNew ? '' : '<div class="field"><button id="del" class="btn-danger btn-block" type="button">Verwijderen</button></div>'}
           </form>
         </section>`;
       const f = document.getElementById('f');
+      document.getElementById('shared').addEventListener('change', (e) => { document.getElementById('share-wrap').hidden = !e.target.checked; });
       f.addEventListener('submit', (e) => {
         e.preventDefault();
         submitting(f, async () => {
           const body = { name: f.name.value, monthly: parseNum(f.monthly.value), grp: f.grp.value,
-            yearly_cost: f.yearly_cost.value.trim() === '' ? null : parseNum(f.yearly_cost.value), purpose: f.purpose.value };
+            yearly_cost: f.yearly_cost.value.trim() === '' ? null : parseNum(f.yearly_cost.value), purpose: f.purpose.value,
+            share: document.getElementById('shared').checked ? Math.min(100, Math.max(5, parseNum(f.share.value) || 50)) / 100 : 1 };
           if (isNew) await api('private/pots', { method: 'POST', body });
           else await api(`private/pots/${id}`, { method: 'PUT', body });
           toast('Potje opgeslagen');
