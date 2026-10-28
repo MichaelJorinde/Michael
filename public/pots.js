@@ -230,8 +230,8 @@ export function potsViews({ app, api, esc, money, num, toast, submitting, setChr
       f.addEventListener('submit', (e) => {
         e.preventDefault();
         submitting(f, async () => {
-          await api('private/pots/import', { method: 'POST', body: { rows: parsed.rows } });
-          toast(`${parsed.rows.length} potjes toegevoegd`);
+          const { added, skipped } = await api('private/pots/import', { method: 'POST', body: { rows: parsed.rows } });
+          toast(`${added} potjes toegevoegd${skipped ? ` · ${skipped} bestonden al` : ''}`);
           location.hash = '#/private/pots';
         });
       });

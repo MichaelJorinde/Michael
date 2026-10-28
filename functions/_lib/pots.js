@@ -38,11 +38,15 @@ export async function potsRoute(method, id, request, db, user) {
   if (id === 'import' && method === 'POST') {
     const rows = [].concat((await readJson(request)).rows || []);
     if (!rows.length || rows.length > 100) throw new HttpError(400, 'Stuur 1 tot 100 potjes');
-    const pots = rows.map(parsePot);
+    // Potjes met een naam die al bestaat, worden overgeslagen: een link twee keer openen geeft geen dubbels.
+    const { results: existing } = await db.prepare('SELECT name FROM private_pots WHERE user_id = ?').bind(user.id).all();
+    const seen = new Set(existing.map((r) => r.name.toLowerCase()));
+    const pots = rows.map(parsePot).filter((p) => !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()));
+    if (!pots.length) return json({ added: 0, skipped: rows.length });
     await db.batch(pots.map((p, i) => db.prepare(
       'INSERT INTO private_pots (user_id, name, monthly, grp, yearly_cost, purpose, share, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).bind(user.id, p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, p.share, i)));
-    return json({ added: pots.length });
+    return json({ added: pots.length, skipped: rows.length - pots.length });
   }
   const potId = Number(id);
   if (!Number.isInteger(potId)) throw new HttpError(404, 'Niet gevonden');
