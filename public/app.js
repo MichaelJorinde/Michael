@@ -2,6 +2,7 @@
 import { lineChart, barChart, legend } from './charts.js';
 import { energyViews } from './energy.js';
 import { privateViews } from './private.js';
+import { analyse } from './signals.js';
 
 const app = document.getElementById('app');
 const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy'), private: document.getElementById('tabbar-private') };
@@ -441,51 +442,24 @@ let priceRange = '1J';
 
 // Koerssignalen: voortschrijdende gemiddelden, 1-jaarsbereik en een beoordeling laag/gemiddeld/hoog.
 function priceSignals(data, avgPrice) {
-  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
-  const closes = data.closes.map(([d, c]) => ({ d, c }));
-  // Laatste punt = huidige koers.
-  const todayStr = today();
-  if (data.price != null) {
-    if (closes.length && closes[closes.length - 1].d === todayStr) closes[closes.length - 1].c = data.price;
-    else closes.push({ d: todayStr, c: data.price });
-  }
-  if (closes.length < 2) return null;
-
-  // Voortschrijdende gemiddelden over 50 en 200 handelsdagen.
-  const movingAvg = (n) => {
-    let total = 0;
-    return closes.map((pt, i) => {
-      total += pt.c;
-      if (i >= n) total -= closes[i - n].c;
-      return i >= n - 1 ? total / n : null;
-    });
-  };
-  const ma50 = movingAvg(50);
-  const ma200 = movingAvg(200);
-  closes.forEach((pt, i) => { pt.ma50 = ma50[i]; pt.ma200 = ma200[i]; });
-
-  const last = closes[closes.length - 1];
-  const year = closes.filter((pt) => pt.d >= day(Date.parse(last.d) - 365 * 86400000));
-  const hi = Math.max(...year.map((pt) => pt.c));
-  const lo = Math.min(...year.map((pt) => pt.c));
-  const fromHigh = last.c / hi - 1;
-  const rangePos = hi > lo ? (last.c - lo) / (hi - lo) : 0.5;
-  const vsMa200 = last.ma200 ? last.c / last.ma200 - 1 : null;
-  const vsAvg = avgPrice ? last.c / avgPrice - 1 : null;
+  const a = analyse(data.closes, data.price, today());
+  if (!a) return null;
+  const { fromHigh, vsMa200 } = a;
+  const vsAvg = avgPrice ? a.last.c / avgPrice - 1 : null;
 
   // Vier niveaus, van uitstekend (blauw) tot relatief hoog (rood).
   const under = `${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar`;
   let verdict;
-  if (fromHigh <= -0.15 || (vsMa200 != null && vsMa200 <= -0.05)) {
+  if (a.level === 'excellent') {
     verdict = { level: 'excellent', title: 'Uitstekend om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 < 0 ? ` en ${pct(-vsMa200).replace('+', '')} onder het 200-daags gemiddelde` : ''}. Zo'n diepe dip komt niet vaak voor; historisch waren dit sterke instapmomenten, al is dat geen garantie.` };
-  } else if (fromHigh <= -0.08 || (vsMa200 != null && vsMa200 <= -0.02)) {
+  } else if (a.level === 'good') {
     verdict = { level: 'good', title: 'Goed moment om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 <= -0.02 ? ' en onder het 200-daags gemiddelde' : ''}. Een gunstig moment om extra in te leggen.` };
-  } else if (rangePos >= 0.85 && (vsMa200 == null || vsMa200 > 0.03)) {
+  } else if (a.level === 'high') {
     verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht op een dip; wie maandelijks inlegt, gaat gewoon door.' };
   } else {
     verdict = { level: 'fair', title: 'Redelijk goed', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde. Een gewoon moment voor je vaste inleg.' };
   }
-  return { closes, last, year, hi, lo, fromHigh, rangePos, vsMa200, vsAvg, verdict };
+  return { ...a, vsAvg, verdict };
 }
 
 const VERDICT_ICON = { excellent: '▼▼', good: '▼', fair: '●', high: '▲' };
