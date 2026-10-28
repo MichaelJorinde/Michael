@@ -13,7 +13,9 @@ function parsePot(b) {
   const yearly = b.yearly_cost === '' || b.yearly_cost == null ? null : Number(b.yearly_cost);
   if (yearly != null && (!Number.isFinite(yearly) || yearly < 0)) throw new HttpError(400, `Ongeldige jaarkost voor ${name}`);
   const purpose = b.purpose ? String(b.purpose).trim().slice(0, 80) : null;
-  return { name, monthly: Math.round(monthly * 100) / 100, grp, yearly_cost: yearly, purpose };
+  const share = b.share == null || b.share === '' ? 1 : Number(b.share);
+  if (!Number.isFinite(share) || share < 0.05 || share > 1) throw new HttpError(400, `Ongeldig aandeel voor ${name}`);
+  return { name, monthly: Math.round(monthly * 100) / 100, grp, yearly_cost: yearly, purpose, share };
 }
 
 const out = ({ user_id, ...p }) => p;
@@ -28,8 +30,8 @@ export async function potsRoute(method, id, request, db, user) {
   if (!id && method === 'POST') {
     const p = parsePot(await readJson(request));
     const row = await db.prepare(
-      'INSERT INTO private_pots (user_id, name, monthly, grp, yearly_cost, purpose) VALUES (?, ?, ?, ?, ?, ?) RETURNING *',
-    ).bind(user.id, p.name, p.monthly, p.grp, p.yearly_cost, p.purpose).first();
+      'INSERT INTO private_pots (user_id, name, monthly, grp, yearly_cost, purpose, share) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
+    ).bind(user.id, p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, p.share).first();
     return json({ pot: out(row) }, 201);
   }
   if (id === 'import' && method === 'POST') {
@@ -37,8 +39,8 @@ export async function potsRoute(method, id, request, db, user) {
     if (!rows.length || rows.length > 100) throw new HttpError(400, 'Stuur 1 tot 100 potjes');
     const pots = rows.map(parsePot);
     await db.batch(pots.map((p, i) => db.prepare(
-      'INSERT INTO private_pots (user_id, name, monthly, grp, yearly_cost, purpose, sort) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).bind(user.id, p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, i)));
+      'INSERT INTO private_pots (user_id, name, monthly, grp, yearly_cost, purpose, share, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(user.id, p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, p.share, i)));
     return json({ added: pots.length });
   }
   const potId = Number(id);
@@ -46,8 +48,8 @@ export async function potsRoute(method, id, request, db, user) {
   if (method === 'PUT') {
     const p = parsePot(await readJson(request));
     const row = await db.prepare(
-      'UPDATE private_pots SET name = ?, monthly = ?, grp = ?, yearly_cost = ?, purpose = ? WHERE id = ? AND user_id = ? RETURNING *',
-    ).bind(p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, potId, user.id).first();
+      'UPDATE private_pots SET name = ?, monthly = ?, grp = ?, yearly_cost = ?, purpose = ?, share = ? WHERE id = ? AND user_id = ? RETURNING *',
+    ).bind(p.name, p.monthly, p.grp, p.yearly_cost, p.purpose, p.share, potId, user.id).first();
     if (!row) throw new HttpError(404, 'Potje niet gevonden');
     return json({ pot: out(row) });
   }
