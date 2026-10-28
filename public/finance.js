@@ -1,5 +1,6 @@
 // € Privé: uitgaven uit bankexports — vaste kosten, categorieën en grafieken.
 import { barChart, columnChart, legend } from './charts.js';
+import { pageHead, info } from './ui.js';
 import { decode, parseCsv, findHeader, detectColumns, extract } from './bankcsv.js';
 
 const FREQ = [
@@ -61,7 +62,7 @@ export function financeViews({ app, api, esc, money, num, toast, setChrome, gate
     if (!txs.length) {
       app.innerHTML = `
         <div class="stack">
-          <div class="row between"><h1>€ Privé</h1>${lockButton}</div>
+          ${pageHead('€ Privé', lockButton)}
           <section class="card accent-card stack">
             <h2>Je uitgaven in kaart brengen</h2>
             <p>Exporteer je verrichtingen als <b>CSV-bestand</b> in je bankapp of internetbankieren (meestal via "Exporteren" of "Downloaden" bij je rekening) en importeer het hier. Liefst 6 à 12 maanden.</p>
@@ -98,34 +99,36 @@ export function financeViews({ app, api, esc, money, num, toast, setChrome, gate
       return row;
     });
 
+    const fixedRow = (f) => `
+            <li class="purchase">
+              <div class="grow"><b>${esc(f.counterparty)}</b>
+                <div class="muted small">${esc(f.category)} · ${esc(f.frequency)}</div></div>
+              <div class="num" style="text-align:right"><b>${eur(f.perMonth)}</b>${f.frequency !== 'maandelijks' ? `<div class="muted small">${eur(f.avg)} ${esc(f.frequency)}</div>` : ''}</div>
+            </li>`;
     const catOptions = (sel) => categories.map((c) => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
     const byMonth = months.slice().reverse().map((m) => ({ m, list: txs.filter((t) => t.date.startsWith(m)) }));
 
     app.innerHTML = `
       <div class="stack">
-        <div class="row between"><h1>€ Privé</h1>${lockButton}</div>
-        <p class="muted small" style="margin:0">${esc(monthName(months[0]))} – ${esc(monthName(months[months.length - 1]))} · gemiddelden over ${full.length} volledige maand${full.length === 1 ? '' : 'en'}</p>
+        ${pageHead('€ Privé', lockButton, `${esc(monthShort(months[0]))} ${months[0].slice(0, 4)} – ${esc(monthShort(months[months.length - 1]))} ${months[months.length - 1].slice(0, 4)} · gemiddeld per maand`)}
         <section class="card hero">
           <div class="label">Uitgaven per maand</div>
           <div class="big num">${eur(avgSpend)}</div>
           <div class="stats">
-            <div class="stat"><div class="k">Vaste kosten / maand</div><div class="v num">${eur(fixedTotal)}</div></div>
-            <div class="stat"><div class="k">Inkomsten / maand</div><div class="v num">${eur(avgIncome)}</div></div>
-            <div class="stat"><div class="k">Variabel / maand</div><div class="v num">${eur(Math.max(0, avgSpend - fixedTotal))}</div></div>
-            <div class="stat"><div class="k">Naar potjes & sparen / maand</div><div class="v num">${eur(avgSaved)}</div></div>
-            <div class="stat"><div class="k">Over / maand</div><div class="v num ${avgIncome - avgSpend - avgSaved >= 0 ? 'gain' : 'loss'}">${eur(avgIncome - avgSpend - avgSaved)}</div></div>
+            <div class="stat"><div class="k">Inkomsten</div><div class="v num">${eur(avgIncome)}</div></div>
+            <div class="stat"><div class="k">Vaste kosten</div><div class="v num">${eur(fixedTotal)}</div></div>
+            <div class="stat"><div class="k">Variabel</div><div class="v num">${eur(Math.max(0, avgSpend - fixedTotal))}</div></div>
+            <div class="stat"><div class="k">Potjes & sparen</div><div class="v num">${eur(avgSaved)}</div></div>
           </div>
+          <div class="callout"><span>Over per maand</span><span class="num ${avgIncome - avgSpend - avgSaved >= 0 ? 'gain' : 'loss'}">${eur(avgIncome - avgSpend - avgSaved)}</span></div>
+          ${info(`Gemiddelden over ${full.length} volledige maand${full.length === 1 ? '' : 'en'} (de eerste en laatste maand van je export tellen niet mee, die zijn vaak onvolledig). "Over" = inkomsten min uitgaven min wat naar potjes en spaarrekeningen gaat.`)}
         </section>
 
-        <section class="card accent-card">
+        <section class="card">
           <div class="trends-head"><h2>Vaste kosten</h2><b class="num">${eur(fixedTotal)}/maand</b></div>
-          <p class="muted small" style="margin:4px 0 0">Automatisch herkend: zelfde tegenpartij, regelmatig, vrij stabiel bedrag. Kosten per kwartaal of jaar zijn omgerekend naar een maandbedrag.</p>
-          ${fixed.length ? `<ul class="list">${fixed.map((f) => `
-            <li class="purchase">
-              <div class="grow"><b>${esc(f.counterparty)}</b>
-                <div class="muted small">${esc(f.category)} · ${esc(f.frequency)} · ${f.count}× · laatst ${esc(dayFmt(f.last.date))}</div></div>
-              <div class="num" style="text-align:right"><b>${eur(f.perMonth)}</b>${f.frequency !== 'maandelijks' ? `<div class="muted small">${eur(f.avg)} ${esc(f.frequency)}</div>` : '<div class="muted small">/maand</div>'}</div>
-            </li>`).join('')}</ul>` : '<p class="muted">Nog geen vaste kosten herkend. Importeer meer maanden.</p>'}
+          ${fixed.length ? `<ul class="list">${fixed.slice(0, 5).map(fixedRow).join('')}</ul>
+          ${fixed.length > 5 ? `<details class="fold"><summary><span class="small" style="color:var(--primary);font-weight:700">Toon alle ${fixed.length}</span></summary><ul class="list">${fixed.slice(5).map(fixedRow).join('')}</ul></details>` : ''}` : '<p class="muted">Nog geen vaste kosten herkend. Importeer meer maanden.</p>'}
+          ${info('Automatisch herkend: zelfde tegenpartij, regelmatig, vrij stabiel bedrag. Kosten per kwartaal of jaar zijn omgerekend naar een maandbedrag.', 'Hoe herkend?')}
         </section>
 
         <section class="card chart-card">
@@ -142,9 +145,9 @@ export function financeViews({ app, api, esc, money, num, toast, setChrome, gate
 
         <section class="card">
           <div class="row between"><h2>Verrichtingen</h2><a class="btn btn-small" href="#/private/import">Importeren</a></div>
-          <p class="muted small" style="margin:4px 0 0">Klopt een categorie niet? Kies de juiste; die wordt onthouden voor alle verrichtingen van die tegenpartij.</p>
-          ${byMonth.map(({ m, list }, i) => `
-            <details class="tx-month" ${i === 0 ? 'open' : ''}>
+          ${info('Klopt een categorie niet? Kies de juiste; die wordt onthouden voor alle verrichtingen van die tegenpartij.', 'Categorie aanpassen')}
+          ${byMonth.map(({ m, list }) => `
+            <details class="tx-month">
               <summary><span>${esc(monthName(m))}</span><span class="num">${eur(list.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0))}</span></summary>
               <ul class="list">${list.map((t) => `
                 <li class="purchase">
