@@ -66,7 +66,7 @@ async function main() {
   const label = (r) => r.ticker.replace(/\..*$/, '');
   const lines = ok.map((r) => {
     const l = LEVEL[r.a.level];
-    return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)} · ${l.label}\n   ${r.a.fromHigh > -0.005 ? 'op de jaartop' : `${pct(r.a.fromHigh)} t.o.v. jaartop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
+    return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
   });
   const failed = rows.filter((r) => r?.failed).map(label);
   if (failed.length) lines.push(`⚠️ Geen koers voor ${failed.join(', ')}`);

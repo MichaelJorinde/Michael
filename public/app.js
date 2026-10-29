@@ -442,21 +442,24 @@ let priceRange = '1J';
 function priceSignals(data, avgPrice) {
   const a = analyse(data.closes, data.price, today());
   if (!a) return null;
-  const { fromHigh, vsMa200 } = a;
+  const { fromHigh, dip, falling } = a;
   const vsAvg = avgPrice ? a.last.c / avgPrice - 1 : null;
+  const below = (v) => pct(v).replace('−', '').replace('-', '');
 
-  // Vier niveaus, van uitstekend (blauw) tot relatief hoog (rood).
-  const under = `${pct(-fromHigh).replace('+', '')} onder het hoogste punt van het voorbije jaar`;
+  // Vier niveaus op basis van de dip t.o.v. de top van de voorbije 3 maanden (zie signals.js).
   let verdict;
   if (a.level === 'excellent') {
-    verdict = { level: 'excellent', title: 'Uitstekend om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 < 0 ? ` en ${pct(-vsMa200).replace('+', '')} onder het 200-daags gemiddelde` : ''}. Zo'n diepe dip komt niet vaak voor; historisch waren dit sterke instapmomenten, al is dat geen garantie.` };
+    verdict = { level: 'excellent', title: 'Uitstekend om bij te kopen', text: dip <= -0.10
+      ? `De koers zakte ${below(dip)} onder het hoogste punt van de voorbije 3 maanden: een stevige dip. Zulke dalingen zijn bij brede indexfondsen historisch goede instapmomenten, al is dat geen garantie.`
+      : `De koers staat ${below(fromHigh)} onder het hoogste punt van het voorbije jaar: een flinke correctie. Historisch waren dit sterke instapmomenten, al is dat geen garantie.` };
   } else if (a.level === 'good') {
-    verdict = { level: 'good', title: 'Goed moment om bij te kopen', text: `De koers ligt ${under}${vsMa200 != null && vsMa200 <= -0.02 ? ' en onder het 200-daags gemiddelde' : ''}. Een gunstig moment om extra in te leggen.` };
+    verdict = { level: 'good', title: 'Goed moment om bij te kopen', text: `De koers zakte ${below(dip)} onder het hoogste punt van de voorbije 3 maanden. Een duidelijke dip: gunstig om extra in te leggen.` };
   } else if (a.level === 'high') {
-    verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat dicht bij het hoogste punt van het voorbije jaar en duidelijk boven het 200-daags gemiddelde. Wie wil timen, wacht op een dip; wie maandelijks inlegt, gaat gewoon door.' };
+    verdict = { level: 'high', title: 'Relatief hoog', text: 'De koers staat op of vlak bij het hoogste punt van de voorbije 3 maanden en duidelijk boven het 50-daags gemiddelde. Wie wil timen, wacht op een dip van 5%; wie maandelijks inlegt, gaat gewoon door.' };
   } else {
-    verdict = { level: 'fair', title: 'Redelijk goed', text: 'De koers zit niet bij een uitschieter: niet uitzonderlijk laag of hoog ten opzichte van het voorbije jaar en het 200-daags gemiddelde. Een gewoon moment voor je vaste inleg.' };
+    verdict = { level: 'fair', title: 'Redelijk goed', text: `Geen duidelijke dip: de koers staat ${dip > -0.005 ? 'op' : `${below(dip)} onder`} de top van de voorbije 3 maanden. Een gewoon moment voor je vaste inleg.` };
   }
+  if (falling) verdict.text += ' Let op: de koers zit al langere tijd in een dalende trend. Koop enkel bij als je in dit fonds blijft geloven.';
   return { ...a, vsAvg, verdict };
 }
 
@@ -467,7 +470,7 @@ const verdictBadge = (v) => `<span class="vbadge vbadge-${v.level}"><span aria-h
 function sparkline(points, avgPrice, small = false) {
   const W = 300;
   const H = 64;
-  const vals = points.flatMap((pt) => [pt.c, pt.ma200]).filter((v) => v != null);
+  const vals = points.map((pt) => pt.c).filter((v) => v != null);
   if (avgPrice) vals.push(avgPrice);
   const min = Math.min(...vals);
   const max = Math.max(...vals);
@@ -487,7 +490,6 @@ function sparkline(points, avgPrice, small = false) {
   return `<svg class="spark${small ? ' spark-sm' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <path d="${line}L${W},${H}L0,${H}Z" fill="var(--c1)" opacity=".12"/>
     ${avgPrice ? `<line x1="0" x2="${W}" y1="${y(avgPrice)}" y2="${y(avgPrice)}" class="spark-ref"/>` : ''}
-    <path d="${path('ma200')}" fill="none" stroke="var(--c2)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
     <path d="${line}" fill="none" stroke="var(--c1)" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   </svg>`;
 }
@@ -516,12 +518,12 @@ async function loadTrendsCard(positions) {
         </div>
         ${sparkline(sig.year, p.avgPrice, true)}
         <div class="trend-line num">
-          <span><b>${pct(sig.fromHigh)}</b> v. jaartop</span>
+          <span><b>${sig.dip > -0.005 ? 'op' : pct(sig.dip)}</b> ${sig.dip > -0.005 ? 'de 3-maandtop' : 'v. 3-maandtop'}</span>
           ${sig.vsAvg == null ? '' : `<span><b class="${cls(sig.vsAvg)}">${pct(sig.vsAvg)}</b> v. jouw aankoop</span>`}
         </div>
       </a>`;
     }).join('')}
-    ${info('Blauwe lijn = koers van het voorbije jaar · oranje stippellijn = 200-daags gemiddelde · grijze lijn = jouw gemiddelde aankoopprijs. De kleur zegt hoe interessant bijkopen nu is: blauw uitstekend, groen goed, oranje redelijk, rood relatief hoog. Tik op een ETF voor details.', 'Hoe lees ik dit?')}`;
+    ${info('Blauwe lijn = koers van het voorbije jaar · grijze stippellijn = jouw gemiddelde aankoopprijs.<br><br>De kleur kijkt naar de dip t.o.v. de hoogste koers van de voorbije 3 maanden:<br>🔵 <b>uitstekend</b>: 10% of meer gezakt (of 20% onder de jaartop)<br>🟢 <b>goed</b>: 5 à 10% gezakt<br>🟠 <b>redelijk</b>: minder dan 5% gezakt<br>🔴 <b>relatief hoog</b>: op de top en duidelijk boven het 50-daags gemiddelde<br><br>Tik op een ETF voor de volledige grafiek.', 'Hoe lees ik dit?')}`;
 }
 
 async function loadPriceCard(ticker, p) {
@@ -540,7 +542,7 @@ async function loadPriceCard(ticker, p) {
     el.innerHTML = '<h2>Koersverloop</h2><p class="muted small">Nog onvoldoende koersgegevens voor een grafiek.</p>';
     return;
   }
-  const { closes, last, hi, lo, fromHigh, rangePos, vsMa200, vsAvg, verdict } = sig;
+  const { closes, last, hi, lo, fromHigh, rangePos, top3m, dip, vsAvg, verdict } = sig;
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
   const series = [
@@ -560,7 +562,7 @@ async function loadPriceCard(ticker, p) {
     <div class="verdict verdict-${verdict.level}">${verdictBadge(verdict)}<p>${esc(verdict.text)}</p></div>
     <div class="stats" style="margin-top:12px">
       <div class="stat"><div class="k">t.o.v. hoogste (1 jaar)</div><div class="v num">${pct(fromHigh)}</div><div class="muted small">hoogste ${fmt(hi)}</div></div>
-      <div class="stat"><div class="k">t.o.v. 200-daags gem.</div><div class="v num">${vsMa200 == null ? '—' : pct(vsMa200)}</div><div class="muted small">${last.ma200 ? fmt(last.ma200) : 'te weinig historiek'}</div></div>
+      <div class="stat"><div class="k">t.o.v. top 3 maanden</div><div class="v num">${pct(dip)}</div><div class="muted small">top ${fmt(top3m)}</div></div>
       <div class="stat"><div class="k">t.o.v. jouw aankoopprijs</div><div class="v num ${cls(vsAvg)}">${vsAvg == null ? '—' : pct(vsAvg)}</div><div class="muted small">gem. ${fmt(p.avgPrice)}</div></div>
       <div class="stat"><div class="k">Plaats in 1-jaarsbereik</div><div class="v num">${num(rangePos * 100, 0)}%</div>
         <div class="meter" style="margin-top:6px"><span style="width:${Math.max(3, rangePos * 100)}%;background:var(--c1)"></span></div>
