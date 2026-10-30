@@ -52,7 +52,9 @@ async function main() {
     try {
       const q = await quote(p.ticker);
       const a = analyse(q.closes, q.price, todayStr);
-      return a && { ...p, ...q, a };
+      // Dagverandering t.o.v. de vorige slotkoers.
+      const prev = a && a.closes.length > 1 ? a.closes[a.closes.length - 2].c : null;
+      return a && { ...p, ...q, a, change: prev ? a.last.c / prev - 1 : null };
     } catch {
       return { ...p, failed: true };
     }
@@ -63,10 +65,13 @@ async function main() {
   const order = ['excellent', 'good', 'fair', 'high'];
   ok.sort((x, y) => order.indexOf(x.a.level) - order.indexOf(y.a.level));
   const buy = ok.filter((r) => r.a.level === 'excellent' || r.a.level === 'good');
+  // Dip zet zich verder: al minstens 3% onder de 3-maandtop én vandaag opnieuw lager.
+  const deeper = ok.filter((r) => r.a.dip <= -0.03 && r.change != null && r.change < 0);
   const label = (r) => r.ticker.replace(/\..*$/, '');
   const lines = ok.map((r) => {
     const l = LEVEL[r.a.level];
-    return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
+    const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
+    return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)}${today} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
   });
   const failed = rows.filter((r) => r?.failed).map(label);
   if (failed.length) lines.push(`⚠️ Geen koers voor ${failed.join(', ')}`);
@@ -74,16 +79,18 @@ async function main() {
   const date = new Date().toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', weekday: 'short', day: 'numeric', month: 'short' });
   const msg = {
     topic: TOPIC,
-    title: buy.length ? `Koopmoment: ${buy.map(label).join(', ')}` : `ETF's ${date}: geen koopmoment`,
+    title: deeper.length
+      ? `Dip zet verder: ${deeper.map((r) => `${label(r)} ${pct(r.change)}`).join(', ')}${buy.length ? ' · koopmoment' : ''}`
+      : buy.length ? `Koopmoment: ${buy.map(label).join(', ')}` : `ETF's ${date}: geen koopmoment`,
     message: lines.join('\n'),
-    priority: buy.length ? 4 : 2,
-    tags: [buy.length ? 'chart_with_downwards_trend' : 'bar_chart'],
+    priority: buy.length || deeper.length ? 4 : 2,
+    tags: [buy.length || deeper.length ? 'chart_with_downwards_trend' : 'bar_chart'],
     click: SITE,
   };
   if (DRY_RUN) { console.log(JSON.stringify({ ...msg, topic: '(verborgen)' }, null, 2)); return; }
   const res = await fetch('https://ntfy.sh/', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(msg) });
   if (!res.ok) throw new Error(`ntfy antwoordde met ${res.status}`);
-  console.log(`Melding verstuurd (${ok.length} ETF's, ${buy.length} koopmoment).`);
+  console.log(`Melding verstuurd (${ok.length} ETF's, ${buy.length} koopmoment, ${deeper.length} verdere dip).`);
 }
 
 main().catch((err) => { console.error(`Mislukt: ${err.message}`); process.exit(1); });
