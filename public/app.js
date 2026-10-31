@@ -316,6 +316,7 @@ async function viewDashboard(refresh = false) {
       ${ownerChips(data.owners)}
       ${data.totals.map(totalsCard).join('')}
       <section class="card accent-card" id="trends-card"><div class="trends-head"><h2>Koersverloop</h2></div><div class="loading" style="padding:16px">Koersen laden…</div></section>
+      <section class="card" id="watch-card"></section>
       ${personsCard(data.owners)}
       ${allocationCard(data.positions)}
       <h2>Posities${state.owner ? ` van ${esc(state.owner)}` : ''}</h2>
@@ -323,6 +324,7 @@ async function viewDashboard(refresh = false) {
     </div>`;
   bindOwnerChips(() => viewDashboard());
   loadTrendsCard(data.positions).catch(() => {});
+  loadWatchCard().catch(() => {});
   app.querySelectorAll('.person[data-owner]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     setOwner(a.dataset.owner);
@@ -340,6 +342,91 @@ async function viewDashboard(refresh = false) {
       btn.disabled = false;
       btn.querySelector('svg').classList.remove('spin');
     }
+  });
+}
+
+// ---------- volglijst ----------
+
+const curMoney = (v, cur) => (cur ? money(v, cur) : num(v, 2));
+
+// Kaart 'Volglijst' op het overzicht: aandelen die je opvolgt zonder ze te bezitten.
+async function loadWatchCard() {
+  const el = document.getElementById('watch-card');
+  if (!el) return;
+  const { items } = await api('watchlist');
+  const head = `<div class="row between"><h2>Volglijst</h2><a class="btn btn-ghost btn-small" href="#/watch/new">+ Volgen</a></div>`;
+  if (!items.length) {
+    el.innerHTML = `${head}<p class="muted small" style="margin:6px 0 0">Volg een aandeel of ETF zonder het te kopen, met een melding als de koers onder of boven een bedrag gaat.</p>`;
+    return;
+  }
+  const rows = await Promise.all(items.map((w) => api(`chart/${encodeURIComponent(w.ticker)}`)
+    .then((data) => ({ w, data, sig: priceSignals(data, null) }))
+    .catch((err) => { if (err instanceof StaleView) throw err; return { w, data: null, sig: null }; })));
+  if (!document.body.contains(el)) return;
+  el.innerHTML = `${head}
+    ${rows.map(({ w, data, sig }) => {
+      const cur = data?.currency;
+      const price = sig ? sig.last.c : data?.price;
+      const hit = price != null && ((w.alert_below != null && price < w.alert_below) || (w.alert_above != null && price > w.alert_above));
+      const alarm = [w.alert_below != null ? `onder ${curMoney(w.alert_below, cur)}` : '', w.alert_above != null ? `boven ${curMoney(w.alert_above, cur)}` : ''].filter(Boolean).join(' · ');
+      return `
+      <a class="trend" href="#/watch/${w.id}">
+        <div class="row between">
+          <div class="grow"><b>${esc(w.name || w.ticker)}</b> <span class="muted small">${esc(w.ticker)}</span><br>
+            <span class="num">${price == null ? '—' : curMoney(price, cur)}</span></div>
+          ${sig ? verdictBadge(sig.verdict) : ''}
+        </div>
+        ${sig ? sparkline(sig.year, null, true) : ''}
+        <div class="trend-line num">
+          ${sig ? `<span><b>${sig.dip > -0.005 ? 'op' : pct(sig.dip)}</b> ${sig.dip > -0.005 ? 'de 3-maandtop' : 'v. 3-maandtop'}</span>` : ''}
+          ${alarm ? `<span class="${hit ? 'loss' : ''}">🔔 ${hit ? '<b>bereikt</b> · ' : ''}${alarm}</span>` : ''}
+        </div>
+      </a>`;
+    }).join('')}
+    ${info('Je krijgt in je dagelijkse melding van 20u ook de stand van je volglijst. Gaat een koers onder (of boven) je alarmbedrag, dan staat dat in de titel en hoor je een geluid. Tik op een regel om het alarm aan te passen.')}`;
+}
+
+async function viewWatchForm(id) {
+  setChrome('dashboard');
+  const isNew = id === 'new';
+  const { items } = await api('watchlist');
+  const w = isNew ? { ticker: '', name: '', alert_below: '', alert_above: '' } : items.find((x) => x.id === Number(id));
+  if (!w) { app.innerHTML = '<div class="empty">Niet gevonden. <a href="#/">Terug</a></div>'; return; }
+  const dec = (v) => (v == null || v === '' ? '' : String(v).replace('.', ','));
+  app.innerHTML = `
+    <section class="card stack">
+      <a href="#/" class="small">← Overzicht</a>
+      <h1>${isNew ? 'Aandeel volgen' : esc(w.name || w.ticker)}</h1>
+      <form id="f" novalidate autocomplete="off">
+        ${isNew ? `
+        <div class="field"><label for="ticker">Ticker</label><input id="ticker" name="ticker" placeholder="bv. NVDA of VWCE.DE" required autocapitalize="characters"></div>
+        <div class="field"><label for="name">Naam (optioneel)</label><input id="name" name="name" placeholder="bv. NVIDIA"></div>` : ''}
+        <div class="field-row">
+          <div class="field"><label for="below">Melding onder</label><input id="below" name="below" inputmode="decimal" value="${esc(dec(w.alert_below))}" placeholder="bv. 195"></div>
+          <div class="field"><label for="above">Melding boven</label><input id="above" name="above" inputmode="decimal" value="${esc(dec(w.alert_above))}" placeholder="optioneel"></div>
+        </div>
+        <p class="hint">In de munt van het aandeel (bv. dollar voor NVIDIA). Laat leeg voor geen alarm.</p>
+        <div class="field" style="margin-top:16px"><button class="btn-block" type="submit">Opslaan</button></div>
+        ${isNew ? '' : '<div class="field"><button id="del" class="btn-danger btn-block" type="button">Niet meer volgen</button></div>'}
+      </form>
+    </section>`;
+  const f = document.getElementById('f');
+  const val = (x) => (x.value.trim() === '' ? null : parseNum(x.value));
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitting(f, async () => {
+      const body = { alert_below: val(f.below), alert_above: val(f.above) };
+      if (isNew) await api('watchlist', { method: 'POST', body: { ...body, ticker: f.ticker.value, name: f.name.value } });
+      else await api(`watchlist/${id}`, { method: 'PUT', body });
+      toast('Volglijst bijgewerkt');
+      location.hash = '#/';
+    });
+  });
+  document.getElementById('del')?.addEventListener('click', async () => {
+    if (!confirm(`${w.name || w.ticker} niet meer volgen?`)) return;
+    await api(`watchlist/${id}`, { method: 'DELETE' });
+    toast('Verwijderd uit volglijst');
+    location.hash = '#/';
   });
 }
 
@@ -990,6 +1077,7 @@ async function render() {
       case 'purchases': return await viewPurchases();
       case 'charts': return await viewCharts();
       case 'position': return await viewPosition(decodeURIComponent(parts[1] || ''));
+      case 'watch': return await viewWatchForm(parts[1]);
       case 'settings': return viewSettings();
       case 'private':
         switch (parts[1]) {

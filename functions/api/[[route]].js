@@ -490,6 +490,38 @@ async function route(method, parts, request, env, url) {
   }
 
   // Koersgrafiek: 5 jaar dagkoersen + huidige koers + eigen aankopen van deze ticker.
+  if (a === 'watchlist') {
+    const alertVal = (v) => (v === '' || v == null ? null : positiveNumber(v, 'alarmkoers'));
+    if (!b && method === 'GET') {
+      const { results } = await db.prepare('SELECT id, ticker, name, alert_below, alert_above FROM watchlist WHERE user_id = ? ORDER BY ticker').bind(user.id).all();
+      return json({ items: results });
+    }
+    if (!b && method === 'POST') {
+      const body = await readJson(request);
+      const ticker = normTicker(body.ticker);
+      const row = await db.prepare(
+        `INSERT INTO watchlist (user_id, ticker, name, alert_below, alert_above) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, ticker) DO UPDATE SET name = excluded.name, alert_below = excluded.alert_below, alert_above = excluded.alert_above
+         RETURNING id, ticker, name, alert_below, alert_above`,
+      ).bind(user.id, ticker, body.name ? String(body.name).slice(0, 80) : null, alertVal(body.alert_below), alertVal(body.alert_above)).first();
+      return json({ item: row }, 201);
+    }
+    const id = Number(b);
+    if (!Number.isInteger(id)) throw new HttpError(404, 'Niet gevonden');
+    if (method === 'PUT') {
+      const body = await readJson(request);
+      const row = await db.prepare(
+        'UPDATE watchlist SET alert_below = ?, alert_above = ? WHERE id = ? AND user_id = ? RETURNING id, ticker, name, alert_below, alert_above',
+      ).bind(alertVal(body.alert_below), alertVal(body.alert_above), id, user.id).first();
+      if (!row) throw new HttpError(404, 'Niet gevonden');
+      return json({ item: row });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM watchlist WHERE id = ? AND user_id = ?').bind(id, user.id).run();
+      return json({ ok: true });
+    }
+  }
+
   if (a === 'chart' && b && method === 'GET') {
     const ticker = normTicker(decodeURIComponent(b));
     const from = isoDay(Date.now() - 5 * 365.25 * DAY_MS);
@@ -506,6 +538,7 @@ async function route(method, parts, request, env, url) {
       price: q.price,
       priceSource: q.source,
       priceUpdatedAt: q.updatedAt,
+      currency: q.currency,
       purchases: results.map((r) => ({ date: r.purchase_date, price: r.price, quantity: r.quantity, owner: r.owner })),
     });
   }
