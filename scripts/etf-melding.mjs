@@ -15,14 +15,16 @@ const LEVEL = {
 };
 const HEADERS = { 'user-agent': 'Mozilla/5.0 (compatible; etf-tracker)', accept: 'application/json' };
 
-// ETF's van het eerste account, rechtstreeks uit D1 (uitvoer niet naar de log).
-function positions() {
-  const sql = `SELECT ticker, MAX(name) AS name, SUM(quantity) AS qty, SUM(quantity * price + fees) / SUM(quantity) AS avg
-    FROM purchases WHERE user_id = ${Number(process.env.USER_ID) || '(SELECT MIN(id) FROM users)'} GROUP BY ticker`;
+// Gegevens van het eerste account, rechtstreeks uit D1 (uitvoer niet naar de log).
+const USER = Number(process.env.USER_ID) || '(SELECT MIN(id) FROM users)';
+function query(sql) {
   const out = execFileSync('npx', ['wrangler', 'd1', 'execute', 'etf-tracker', process.env.D1_LOCAL ? '--local' : '--remote', '--json', '--command', sql],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return JSON.parse(out)[0].results.filter((r) => r.qty > 0);
+  return JSON.parse(out)[0].results;
 }
+const positions = () => query(`SELECT ticker, MAX(name) AS name, SUM(quantity) AS qty, SUM(quantity * price + fees) / SUM(quantity) AS avg
+    FROM purchases WHERE user_id = ${USER} GROUP BY ticker`).filter((r) => r.qty > 0);
+const watchlist = () => query(`SELECT ticker, name, alert_below, alert_above FROM watchlist WHERE user_id = ${USER} ORDER BY ticker`);
 
 async function quote(ticker) {
   const period2 = Math.floor(Date.now() / 1000);
@@ -48,7 +50,7 @@ const pct = (v) => `${v >= 0 ? '+' : '−'}${new Intl.NumberFormat('nl-BE', { ma
 async function main() {
   if (!TOPIC && !DRY_RUN) throw new Error('NTFY_TOPIC ontbreekt (GitHub-secret)');
   const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Brussels' });
-  const rows = await Promise.all(positions().map(async (p) => {
+  const load = async (p) => {
     try {
       const q = await quote(p.ticker);
       const a = analyse(q.closes, q.price, todayStr);
@@ -58,7 +60,10 @@ async function main() {
     } catch {
       return { ...p, failed: true };
     }
-  }));
+  };
+  const rows = await Promise.all(positions().map(load));
+  let watched = [];
+  try { watched = await Promise.all(watchlist().map(load)); } catch { /* nog geen volglijst-tabel */ }
   const ok = rows.filter((r) => r && !r.failed);
   if (!ok.length) throw new Error('geen koersen opgehaald');
 
@@ -73,17 +78,31 @@ async function main() {
     const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
     return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)}${today} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
   });
-  const failed = rows.filter((r) => r?.failed).map(label);
+  // Volglijst: koers en alarm.
+  const wOk = watched.filter((r) => r && !r.failed);
+  const alarms = wOk.filter((r) => (r.alert_below != null && r.a.last.c < r.alert_below) || (r.alert_above != null && r.a.last.c > r.alert_above));
+  const alarmText = (r) => `${r.name || label(r)} ${r.alert_below != null && r.a.last.c < r.alert_below ? `onder ${money(r.alert_below, r.currency)}` : `boven ${money(r.alert_above, r.currency)}`}: ${money(r.a.last.c, r.currency)}`;
+  if (wOk.length) {
+    lines.push('\n👀 Volglijst');
+    wOk.forEach((r) => {
+      const l = LEVEL[r.a.level];
+      const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
+      const alarm = r.alert_below != null ? ` · 🔔 onder ${money(r.alert_below, r.currency)}` : '';
+      lines.push(`${l.icon} ${r.name || label(r)} ${money(r.a.last.c, r.currency)}${today}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`}${alarm}${alarms.includes(r) ? ' · BEREIKT' : ''}`);
+    });
+  }
+  const failed = [...rows, ...watched].filter((r) => r?.failed).map(label);
   if (failed.length) lines.push(`⚠️ Geen koers voor ${failed.join(', ')}`);
 
   const date = new Date().toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', weekday: 'short', day: 'numeric', month: 'short' });
   const msg = {
     topic: TOPIC,
-    title: deeper.length
+    title: alarms.length ? `🔔 ${alarms.map(alarmText).join(' · ')}`
+      : deeper.length
       ? `Dip zet verder: ${deeper.map((r) => `${label(r)} ${pct(r.change)}`).join(', ')}${buy.length ? ' · koopmoment' : ''}`
       : buy.length ? `Koopmoment: ${buy.map(label).join(', ')}` : `ETF's ${date}: geen koopmoment`,
     message: lines.join('\n'),
-    priority: buy.length || deeper.length ? 4 : 2,
+    priority: alarms.length ? 5 : buy.length || deeper.length ? 4 : 2,
     tags: [buy.length || deeper.length ? 'chart_with_downwards_trend' : 'bar_chart'],
     click: SITE,
   };
