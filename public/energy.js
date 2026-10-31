@@ -239,7 +239,6 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           </div>
         </section>
         ${tariffBanner}
-        <section class="card" id="fuel-card"><div class="muted small">⛽ Brandstofprijzen laden…</div></section>
         ${settleCard}
         ${hasTariff ? `
         <section class="card chart-card">
@@ -338,7 +337,6 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
 
     app.innerHTML = `<div class="stack">${pageHead('Energie', '<a class="btn btn-small" href="#/energy/add">+ Maand</a>')}${chips}${body}</div>`;
     drawCharts();
-    loadFuelCard();
     app.querySelectorAll('.chip[data-util]').forEach((b) => b.addEventListener('click', () => {
       pref.util = b.dataset.util;
       try { sessionStorage.setItem('energy-util', pref.util); } catch { /* privémodus */ }
@@ -348,24 +346,6 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       pref.year = Number(b.dataset.year);
       overview();
     }));
-  }
-
-  // Actuele prijzen bij het eigen tankstation (Maes Buggenhout).
-  async function loadFuelCard() {
-    const el = document.getElementById('fuel-card');
-    if (!el) return;
-    let d;
-    try { d = await api('fuel'); } catch { el.hidden = true; return; }
-    if (!document.body.contains(el)) return;
-    const price = (v) => (v == null ? '—' : `€ ${num(v, 3)}`);
-    el.innerHTML = `
-      <div class="chart-head"><h2>⛽ ${esc(d.station.name)}</h2><a class="small" href="${esc(d.station.url)}" target="_blank" rel="noopener">Maes ›</a></div>
-      ${d.error && !Object.keys(d.prices).length ? `<p class="muted small" style="margin:6px 0 0">Prijzen nu niet beschikbaar (${esc(d.error)}).</p>` : `
-      <div class="stats" style="margin-top:10px">
-        ${d.fuels.map((f) => `<div class="stat"><div class="k">${esc(f.label)}</div><div class="v num">${price(d.prices[f.key])}</div><div class="muted small">per liter</div></div>`).join('')}
-      </div>`}
-      ${(d.debug || []).length ? `<details class="info"><summary>Waarom ontbreekt er een prijs?</summary><div>${d.debug.map((x) => `<b>${esc(x.label)}</b>: ${x.snippets.length ? x.snippets.map((t) => `<br>… ${esc(t)} …`).join('') : 'label niet gevonden op de pagina'}`).join('<br>')}</div></details>` : ''}
-      ${info(`${esc(d.station.address)}, Buggenhout. De prijzen komen rechtstreeks van de stationspagina van Maes en worden een paar keer per dag ververst.`)}`;
   }
 
   // ---------- thuisbatterij (simulatie) ----------

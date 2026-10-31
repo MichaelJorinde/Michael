@@ -4,15 +4,16 @@ import { energyViews } from './energy.js';
 import { privateViews } from './private.js';
 import { analyse } from './signals.js';
 import { pageHead, info } from './ui.js';
+import { fuelViews } from './fuel.js';
 
 const app = document.getElementById('app');
-const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy'), private: document.getElementById('tabbar-private') };
+const tabbars = { etf: document.getElementById('tabbar'), energy: document.getElementById('tabbar-energy'), private: document.getElementById('tabbar-private'), fuel: document.getElementById('tabbar-fuel') };
 const sectionNav = document.getElementById('sections');
 const topbarUser = document.getElementById('topbar-user');
 const toastEl = document.getElementById('toast');
 
 const state = { user: null, config: null, owner: null, section: 'etf' };
-try { state.section = ['energy', 'private'].includes(localStorage.getItem('section')) ? localStorage.getItem('section') : 'etf'; } catch { /* privémodus */ }
+try { state.section = ['energy', 'private', 'fuel'].includes(localStorage.getItem('section')) ? localStorage.getItem('section') : 'etf'; } catch { /* privémodus */ }
 // Vaste volgorde van grafiekkleuren (CSS-variabelen, met donkere variant)
 const COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `var(--c${i})`);
 const OTHER_COLOR = 'var(--muted)';
@@ -156,7 +157,7 @@ function viewLogin() {
     submitting(f, async () => {
       const { user } = await api('auth/login', { method: 'POST', body: { email: f.email.value, password: f.password.value } });
       state.user = user;
-      location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/';
+      location.hash = ({ energy: '#/energy', private: '#/private', fuel: '#/fuel' }[state.section] || '#/');
     });
   });
 }
@@ -193,7 +194,7 @@ function viewRegister() {
         body: { name: f.name.value, email: f.email.value, password: f.password.value, code: f.code?.value },
       });
       state.user = user;
-      location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/';
+      location.hash = ({ energy: '#/energy', private: '#/private', fuel: '#/fuel' }[state.section] || '#/');
     });
   });
 }
@@ -1053,6 +1054,7 @@ function lockPrivate() {
   fetch('/api/private/lock', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
 }
 
+const fuel = fuelViews({ app, api, esc, num, setChrome });
 const energy = energyViews({ app, api, esc, money, num, toast, submitting, setChrome, today, parseNum, dateFmt, cls });
 
 // ---------- router ----------
@@ -1065,7 +1067,7 @@ async function render() {
   const publicRoute = parts[0] === 'login' || parts[0] === 'register';
 
   if (!state.user && !publicRoute) { location.hash = '#/login'; return; }
-  if (state.user && publicRoute) { location.hash = state.section === 'energy' ? '#/energy' : state.section === 'private' ? '#/private' : '#/'; return; }
+  if (state.user && publicRoute) { location.hash = ({ energy: '#/energy', private: '#/private', fuel: '#/fuel' }[state.section] || '#/'); return; }
 
   window.scrollTo(0, 0);
   try {
@@ -1088,6 +1090,7 @@ async function render() {
           case 'pot': return await priv.potForm(parts[2]);
           default: return await priv.overview();
         }
+      case 'fuel': return await fuel.overview();
       case 'energy':
         switch (parts[1]) {
           case 'add': return await energy.monthForm(null);

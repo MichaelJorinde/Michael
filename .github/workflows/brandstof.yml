@@ -1,0 +1,15 @@
+name: Brandstofprijzen bewaren
+
+# Twee keer per dag de prijs van Maes Buggenhout laten bewaren door de site zelf
+# (POST /api/fuel/record), zodat de grafiek in Tanken elke dag een punt krijgt.
+on:
+  schedule:
+    - cron: '7 6 * * *'
+    - cron: '7 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  bewaren:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -X POST https://etf-tracker-7tv.pages.dev/api/fuel/record
