@@ -372,3 +372,4 @@ details.fold > summary > :first-child { flex: 1; min-width: 0; }
 .month-row:last-child { border-bottom: 0; }
 .month-row .meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .8rem; color: var(--muted); margin-top: 2px; }
 .callout { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-weight: 700; }
+.tabbar-2 { grid-template-columns: repeat(2, 1fr); }

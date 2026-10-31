@@ -56,3 +56,20 @@ export async function fuelPrices() {
     return { station: STATION, prices: {}, fuels: FUELS.map(({ key, label }) => ({ key, label })), error: err.message };
   }
 }
+
+// Prijs van vandaag bewaren (één rij per dag; een latere meting overschrijft die van eerder die dag).
+export async function recordFuel(db) {
+  const d = await fuelPrices();
+  if (d.prices.euro95 == null && d.prices.diesel == null) return d;
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Brussels' });
+  await db.prepare(
+    `INSERT INTO fuel_prices (date, euro95, diesel, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET euro95 = COALESCE(excluded.euro95, euro95), diesel = COALESCE(excluded.diesel, diesel), updated_at = excluded.updated_at`,
+  ).bind(today, d.prices.euro95 ?? null, d.prices.diesel ?? null, Date.now()).run();
+  return d;
+}
+
+export async function fuelHistory(db) {
+  const { results } = await db.prepare('SELECT date, euro95, diesel FROM fuel_prices ORDER BY date').all();
+  return results;
+}
