@@ -37,11 +37,19 @@ export function analyse(closesRaw, price, todayStr) {
   // Langdurig dalende trend: ver onder het 200-daags gemiddelde én 50-daags onder 200-daags.
   const falling = vsMa200 != null && vsMa200 <= -0.15 && last.ma50 != null && last.ma50 < last.ma200;
 
+  // Beweeglijkheid: typische dagschommeling over het voorbije jaar. Een brede ETF schommelt
+  // ±1% per dag; een los aandeel zoals NVIDIA vaak 2-3%. De drempels schalen daarmee mee,
+  // zodat een gewone week voor een beweeglijk aandeel geen "uitstekend" geeft.
+  const rets = year.slice(1).map((pt, i) => pt.c / year[i].c - 1);
+  const mean = rets.reduce((a, b) => a + b, 0) / (rets.length || 1);
+  const vol = rets.length > 20 ? Math.sqrt(rets.reduce((a, r) => a + (r - mean) ** 2, 0) / rets.length) : 0.01;
+  const scale = Math.min(3, Math.max(1, vol / 0.01));
+
   // Vier niveaus, van uitstekend (blauw) tot relatief hoog (rood).
   let level;
-  if (dip <= -0.10 || fromHigh <= -0.20) level = 'excellent';
-  else if (dip <= -0.05) level = 'good';
-  else if (dip >= -0.01 && vsMa50 != null && vsMa50 >= 0.03) level = 'high';
+  if (dip <= -0.10 * scale || fromHigh <= -0.20 * scale) level = 'excellent';
+  else if (dip <= -0.05 * scale) level = 'good';
+  else if (dip >= -0.01 && vsMa50 != null && vsMa50 >= 0.03 * scale) level = 'high';
   else level = 'fair';
-  return { closes, last, year, hi, lo, fromHigh, rangePos, vsMa200, vsMa50, top3m, dip, falling, level };
+  return { closes, last, year, hi, lo, fromHigh, rangePos, vsMa200, vsMa50, top3m, dip, falling, vol, scale, level };
 }
