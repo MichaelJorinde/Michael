@@ -373,3 +373,24 @@ details.fold > summary > :first-child { flex: 1; min-width: 0; }
 .month-row .meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .8rem; color: var(--muted); margin-top: 2px; }
 .callout { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-weight: 700; }
 .tabbar-2 { grid-template-columns: repeat(2, 1fr); }
+
+/* ---------- hoofdonderdelen bovenaan ---------- */
+.topbar { flex-wrap: wrap; row-gap: 10px; }
+.sections { order: 3; flex: 1 0 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sections[hidden] { display: none !important; }
+.sections a {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-height: 54px; padding: 6px 4px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); text-decoration: none; font-weight: 700; font-size: .82rem; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.sections a svg { width: 22px; height: 22px; }
+.sections a.active { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow); }
+.sections a:not(.active):active { background: var(--surface-2); }
+@media (min-width: 640px) {
+  .sections { order: 0; flex: 0 1 auto; grid-template-columns: repeat(4, auto); }
+  .sections a { flex-direction: row; min-height: 40px; padding: 6px 14px; gap: 6px; font-size: .9rem; }
+  .sections a svg { width: 18px; height: 18px; }
+}
+@media (max-width: 639px) { .brand-name { display: inline; } }
