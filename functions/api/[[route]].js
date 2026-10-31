@@ -505,18 +505,19 @@ async function route(method, parts, request, env, url) {
 
   if (a === 'watchlist') {
     const alertVal = (v) => (v === '' || v == null ? null : positiveNumber(v, 'alarmkoers'));
+    const noteVal = (v) => (v ? String(v).trim().slice(0, 120) || null : null);
     if (!b && method === 'GET') {
-      const { results } = await db.prepare('SELECT id, ticker, name, alert_below, alert_above FROM watchlist WHERE user_id = ? ORDER BY ticker').bind(user.id).all();
+      const { results } = await db.prepare('SELECT id, ticker, name, note, alert_below, alert_above FROM watchlist WHERE user_id = ? ORDER BY ticker').bind(user.id).all();
       return json({ items: results });
     }
     if (!b && method === 'POST') {
       const body = await readJson(request);
       const ticker = normTicker(body.ticker);
       const row = await db.prepare(
-        `INSERT INTO watchlist (user_id, ticker, name, alert_below, alert_above) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, ticker) DO UPDATE SET name = excluded.name, alert_below = excluded.alert_below, alert_above = excluded.alert_above
-         RETURNING id, ticker, name, alert_below, alert_above`,
-      ).bind(user.id, ticker, body.name ? String(body.name).slice(0, 80) : null, alertVal(body.alert_below), alertVal(body.alert_above)).first();
+        `INSERT INTO watchlist (user_id, ticker, name, note, alert_below, alert_above) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, ticker) DO UPDATE SET name = excluded.name, note = excluded.note, alert_below = excluded.alert_below, alert_above = excluded.alert_above
+         RETURNING id, ticker, name, note, alert_below, alert_above`,
+      ).bind(user.id, ticker, body.name ? String(body.name).slice(0, 80) : null, noteVal(body.note), alertVal(body.alert_below), alertVal(body.alert_above)).first();
       return json({ item: row }, 201);
     }
     const id = Number(b);
@@ -524,8 +525,8 @@ async function route(method, parts, request, env, url) {
     if (method === 'PUT') {
       const body = await readJson(request);
       const row = await db.prepare(
-        'UPDATE watchlist SET alert_below = ?, alert_above = ? WHERE id = ? AND user_id = ? RETURNING id, ticker, name, alert_below, alert_above',
-      ).bind(alertVal(body.alert_below), alertVal(body.alert_above), id, user.id).first();
+        'UPDATE watchlist SET note = ?, alert_below = ?, alert_above = ? WHERE id = ? AND user_id = ? RETURNING id, ticker, name, note, alert_below, alert_above',
+      ).bind(noteVal(body.note), alertVal(body.alert_below), alertVal(body.alert_above), id, user.id).first();
       if (!row) throw new HttpError(404, 'Niet gevonden');
       return json({ item: row });
     }
