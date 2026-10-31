@@ -17,17 +17,17 @@ export async function fetchQuote(ticker) {
     price /= 100;
     currency = 'GBP';
   }
-  return { price, currency, name: meta.longName || meta.shortName || null };
+  return { price, currency, name: meta.longName || meta.shortName || null, kind: meta.instrumentType || null };
 }
 
 async function refresh(db, ticker) {
   const quote = await fetchQuote(ticker);
   const now = Date.now();
   await db.prepare(
-    `INSERT INTO prices (ticker, price, currency, name, updated_at) VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO prices (ticker, price, currency, name, kind, updated_at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(ticker) DO UPDATE SET price = excluded.price, currency = excluded.currency,
-       name = COALESCE(excluded.name, prices.name), updated_at = excluded.updated_at`,
-  ).bind(ticker, quote.price, quote.currency, quote.name, now).run();
+       name = COALESCE(excluded.name, prices.name), kind = COALESCE(excluded.kind, prices.kind), updated_at = excluded.updated_at`,
+  ).bind(ticker, quote.price, quote.currency, quote.name, quote.kind, now).run();
   return { ticker, ...quote, updatedAt: now };
 }
 
@@ -43,13 +43,13 @@ export async function getPrices(db, tickers, { force = false } = {}) {
     const row = cached[ticker];
     const age = row ? now - row.updated_at : Infinity;
     if (row && (age < CACHE_MS && !(force && age > MIN_REFRESH_MS))) {
-      return [ticker, { price: row.price, currency: row.currency, name: row.name, updatedAt: row.updated_at }];
+      return [ticker, { price: row.price, currency: row.currency, name: row.name, kind: row.kind, updatedAt: row.updated_at }];
     }
     try {
       return [ticker, await refresh(db, ticker)];
     } catch (err) {
       if (row) {
-        return [ticker, { price: row.price, currency: row.currency, name: row.name, updatedAt: row.updated_at, error: err.message }];
+        return [ticker, { price: row.price, currency: row.currency, name: row.name, kind: row.kind, updatedAt: row.updated_at, error: err.message }];
       }
       return [ticker, { price: null, error: err.message }];
     }

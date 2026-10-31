@@ -41,9 +41,11 @@ async function quote(ticker) {
     if (typeof c === 'number') closes.push([new Date((ts + offset) * 1000).toISOString().slice(0, 10), c * scale]);
   });
   const price = typeof r?.meta?.regularMarketPrice === 'number' ? r.meta.regularMarketPrice * scale : null;
-  return { closes, price, currency: scale === 1 ? r?.meta?.currency || 'EUR' : 'GBP' };
+  return { closes, price, currency: scale === 1 ? r?.meta?.currency || 'EUR' : 'GBP', kind: r?.meta?.instrumentType || null };
 }
 
+// 🧺 = ETF (mandje met veel bedrijven), 🏢 = aandeel (één bedrijf).
+const kindIcon = (r) => (r.kind === 'EQUITY' ? '🏢' : r.kind === 'ETF' || /\b(ETF|UCITS)\b|spdr|ishares|vanguard/i.test(r.name || '') ? '🧺' : '');
 const money = (v, cur) => new Intl.NumberFormat('nl-BE', { style: 'currency', currency: cur }).format(v);
 const pct = (v) => `${v >= 0 ? '+' : '−'}${new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 1 }).format(Math.abs(v) * 100)}%`;
 
@@ -76,7 +78,7 @@ async function main() {
   const lines = ok.map((r) => {
     const l = LEVEL[r.a.level];
     const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
-    return `${l.icon} ${label(r)} ${money(r.a.last.c, r.currency)}${today} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
+    return `${l.icon} ${kindIcon(r)} ${label(r)} ${money(r.a.last.c, r.currency)}${today} · ${l.label}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`} · ${pct(r.a.last.c / r.avg - 1)} t.o.v. jouw aankoop`;
   });
   // Volglijst: koers en alarm.
   const wOk = watched.filter((r) => r && !r.failed);
@@ -90,9 +92,10 @@ async function main() {
       const l = LEVEL[r.a.level];
       const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
       const alarm = r.alert_below != null ? ` · 🔔 onder ${money(r.alert_below, r.currency)}` : '';
-      lines.push(`${l.icon} ${r.name || label(r)} ${money(r.a.last.c, r.currency)}${today}${r.note ? `\n   ⭐ ${r.note}` : ''}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`}${alarm}${alarms.includes(r) ? ' · BEREIKT' : ''}`);
+      lines.push(`${l.icon} ${kindIcon(r)} ${r.name || label(r)} ${money(r.a.last.c, r.currency)}${today}${r.note ? `\n   ⭐ ${r.note}` : ''}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`}${alarm}${alarms.includes(r) ? ' · BEREIKT' : ''}`);
     });
   }
+  lines.push('\n🧺 = ETF (mandje, rustiger) · 🏢 = aandeel (1 bedrijf, meer risico)');
   const failed = [...rows, ...watched].filter((r) => r?.failed).map(label);
   if (failed.length) lines.push(`⚠️ Geen koers voor ${failed.join(', ')}`);
 

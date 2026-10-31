@@ -91,6 +91,7 @@ async function loadPricing(db, user, tickers, force = false) {
       updatedAt: q.updatedAt || null,
       error: q.error || null,
       name: q.name || null,
+      kind: q.kind || null,
     };
   };
 }
@@ -153,6 +154,7 @@ async function buildPortfolio(db, user, { force = false, owner = null } = {}) {
     return {
       ticker: g.ticker,
       name: g.name || q.name || null,
+      kind: q.kind || null,
       currency: g.currency,
       quantity: g.quantity,
       avgPrice: g.cost / g.quantity,
@@ -553,6 +555,8 @@ async function route(method, parts, request, env, url) {
       priceSource: q.source,
       priceUpdatedAt: q.updatedAt,
       currency: q.currency,
+      kind: q.kind || null,
+      name: q.name || null,
       purchases: results.map((r) => ({ date: r.purchase_date, price: r.price, quantity: r.quantity, owner: r.owner })),
     });
   }

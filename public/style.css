@@ -394,3 +394,13 @@ details.fold > summary > :first-child { flex: 1; min-width: 0; }
   .sections a svg { width: 18px; height: 18px; }
 }
 @media (max-width: 639px) { .brand-name { display: inline; } }
+
+/* ---------- ETF of aandeel ---------- */
+.kind { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 800; white-space: nowrap; vertical-align: 2px; margin-left: 4px; }
+.kind-etf { background: color-mix(in srgb, var(--c1) 14%, transparent); color: var(--c1); }
+.kind-stock { background: color-mix(in srgb, var(--c2) 18%, transparent); color: var(--c2); }
+.kind-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .78rem; color: var(--muted); }
+.kind-legend .kind { margin-left: 0; margin-right: 4px; }
+.kind-explain { border-radius: 12px; padding: 10px 12px; margin-top: 12px; font-size: .88rem; }
+.kind-explain.etf { background: color-mix(in srgb, var(--c1) 9%, var(--surface)); }
+.kind-explain.stock { background: color-mix(in srgb, var(--c2) 11%, var(--surface)); }
