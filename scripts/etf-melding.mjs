@@ -24,7 +24,7 @@ function query(sql) {
 }
 const positions = () => query(`SELECT ticker, MAX(name) AS name, SUM(quantity) AS qty, SUM(quantity * price + fees) / SUM(quantity) AS avg
     FROM purchases WHERE user_id = ${USER} GROUP BY ticker`).filter((r) => r.qty > 0);
-const watchlist = () => query(`SELECT ticker, name, alert_below, alert_above FROM watchlist WHERE user_id = ${USER} ORDER BY ticker`);
+const watchlist = () => query(`SELECT ticker, name, note, alert_below, alert_above FROM watchlist WHERE user_id = ${USER} ORDER BY ticker`);
 
 async function quote(ticker) {
   const period2 = Math.floor(Date.now() / 1000);
@@ -81,6 +81,8 @@ async function main() {
   // Volglijst: koers en alarm.
   const wOk = watched.filter((r) => r && !r.failed);
   const alarms = wOk.filter((r) => (r.alert_below != null && r.a.last.c < r.alert_below) || (r.alert_above != null && r.a.last.c > r.alert_above));
+  // Volglijst-items met een dip (groen/blauw) tellen ook als koopmoment.
+  wOk.filter((r) => r.a.level === 'excellent' || r.a.level === 'good').forEach((r) => buy.push(r));
   const alarmText = (r) => `${r.name || label(r)} ${r.alert_below != null && r.a.last.c < r.alert_below ? `onder ${money(r.alert_below, r.currency)}` : `boven ${money(r.alert_above, r.currency)}`}: ${money(r.a.last.c, r.currency)}`;
   if (wOk.length) {
     lines.push('\n👀 Volglijst');
@@ -88,7 +90,7 @@ async function main() {
       const l = LEVEL[r.a.level];
       const today = r.change == null ? '' : ` · vandaag ${pct(r.change)}`;
       const alarm = r.alert_below != null ? ` · 🔔 onder ${money(r.alert_below, r.currency)}` : '';
-      lines.push(`${l.icon} ${r.name || label(r)} ${money(r.a.last.c, r.currency)}${today}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`}${alarm}${alarms.includes(r) ? ' · BEREIKT' : ''}`);
+      lines.push(`${l.icon} ${r.name || label(r)} ${money(r.a.last.c, r.currency)}${today}${r.note ? `\n   ⭐ ${r.note}` : ''}\n   ${r.a.dip > -0.005 ? 'op de 3-maandtop' : `${pct(r.a.dip)} t.o.v. 3-maandtop`}${alarm}${alarms.includes(r) ? ' · BEREIKT' : ''}`);
     });
   }
   const failed = [...rows, ...watched].filter((r) => r?.failed).map(label);

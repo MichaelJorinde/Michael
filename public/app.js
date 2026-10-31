@@ -374,7 +374,8 @@ async function loadWatchCard() {
       <a class="trend" href="#/watch/${w.id}">
         <div class="row between">
           <div class="grow"><b>${esc(w.name || w.ticker)}</b> <span class="muted small">${esc(w.ticker)}</span><br>
-            <span class="num">${price == null ? '—' : curMoney(price, cur)}</span></div>
+            <span class="num">${price == null ? '—' : curMoney(price, cur)}</span>
+            ${w.note ? `<div class="small" style="margin-top:2px">⭐ ${esc(w.note)}</div>` : ''}</div>
           ${sig ? verdictBadge(sig.verdict) : ''}
         </div>
         ${sig ? sparkline(sig.year, null, true) : ''}
@@ -384,14 +385,14 @@ async function loadWatchCard() {
         </div>
       </a>`;
     }).join('')}
-    ${info('Je krijgt in je dagelijkse melding van 20u ook de stand van je volglijst. Gaat een koers onder (of boven) je alarmbedrag, dan staat dat in de titel en hoor je een geluid. Tik op een regel om het alarm aan te passen.')}`;
+    ${info('Je krijgt in je dagelijkse melding van 20u ook de stand van je volglijst. Kleurt een aandeel groen of blauw (een dip), of gaat de koers onder of boven je alarmbedrag, dan staat dat in de titel en hoor je een geluid. Tik op een regel om het alarm of de notitie aan te passen.')}`;
 }
 
 async function viewWatchForm(id) {
   setChrome('dashboard');
   const isNew = id === 'new';
   const { items } = await api('watchlist');
-  const w = isNew ? { ticker: '', name: '', alert_below: '', alert_above: '' } : items.find((x) => x.id === Number(id));
+  const w = isNew ? { ticker: '', name: '', note: '', alert_below: '', alert_above: '' } : items.find((x) => x.id === Number(id));
   if (!w) { app.innerHTML = '<div class="empty">Niet gevonden. <a href="#/">Terug</a></div>'; return; }
   const dec = (v) => (v == null || v === '' ? '' : String(v).replace('.', ','));
   app.innerHTML = `
@@ -407,6 +408,7 @@ async function viewWatchForm(id) {
           <div class="field"><label for="above">Melding boven</label><input id="above" name="above" inputmode="decimal" value="${esc(dec(w.alert_above))}" placeholder="optioneel"></div>
         </div>
         <p class="hint">In de munt van het aandeel (bv. dollar voor NVIDIA). Laat leeg voor geen alarm.</p>
+        <div class="field" style="margin-top:12px"><label for="note">Notitie (optioneel)</label><input id="note" name="note" maxlength="120" value="${esc(w.note || '')}" placeholder="bv. aanrader van een expert"></div>
         <div class="field" style="margin-top:16px"><button class="btn-block" type="submit">Opslaan</button></div>
         ${isNew ? '' : '<div class="field"><button id="del" class="btn-danger btn-block" type="button">Niet meer volgen</button></div>'}
       </form>
@@ -416,7 +418,7 @@ async function viewWatchForm(id) {
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     submitting(f, async () => {
-      const body = { alert_below: val(f.below), alert_above: val(f.above) };
+      const body = { alert_below: val(f.below), alert_above: val(f.above), note: f.note.value };
       if (isNew) await api('watchlist', { method: 'POST', body: { ...body, ticker: f.ticker.value, name: f.name.value } });
       else await api(`watchlist/${id}`, { method: 'PUT', body });
       toast('Volglijst bijgewerkt');
