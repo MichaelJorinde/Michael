@@ -364,6 +364,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       <div class="stats" style="margin-top:10px">
         ${d.fuels.map((f) => `<div class="stat"><div class="k">${esc(f.label)}</div><div class="v num">${price(d.prices[f.key])}</div><div class="muted small">per liter</div></div>`).join('')}
       </div>`}
+      ${(d.debug || []).length ? `<details class="info"><summary>Waarom ontbreekt er een prijs?</summary><div>${d.debug.map((x) => `<b>${esc(x.label)}</b>: ${x.snippets.length ? x.snippets.map((t) => `<br>… ${esc(t)} …`).join('') : 'label niet gevonden op de pagina'}`).join('<br>')}</div></details>` : ''}
       ${info(`${esc(d.station.address)}, Buggenhout. De prijzen komen rechtstreeks van de stationspagina van Maes en worden een paar keer per dag ververst.`)}`;
   }
 
