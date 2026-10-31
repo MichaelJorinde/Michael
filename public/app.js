@@ -3,7 +3,7 @@ import { lineChart, barChart, legend } from './charts.js';
 import { energyViews } from './energy.js';
 import { privateViews } from './private.js';
 import { analyse } from './signals.js';
-import { pageHead, info } from './ui.js';
+import { pageHead, info, kindOf, kindBadge, kindLegend, KIND_TEXT } from './ui.js';
 import { fuelViews } from './fuel.js';
 
 const app = document.getElementById('app');
@@ -272,7 +272,7 @@ function positionCard(p) {
     <a class="card position" href="#/position/${encodeURIComponent(p.ticker)}">
       <div class="row between">
         <div class="grow">
-          <div class="ticker">${esc(p.ticker)}</div>
+          <div class="ticker">${esc(p.ticker)} ${kindBadge(kindOf(p.kind, p.name))}</div>
           <div class="name">${esc(p.name || '')}</div>
         </div>
         <div class="value">
@@ -314,6 +314,7 @@ async function viewDashboard(refresh = false) {
       ${pageHead('Overzicht', `<button id="refresh" class="btn-ghost icon-only" type="button" aria-label="Koersen vernieuwen">
           <svg width="18" height="18" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`,
         `Koersen bijgewerkt ${esc(timeAgo(latest))}`)}
+      ${kindLegend()}
       ${ownerChips(data.owners)}
       ${data.totals.map(totalsCard).join('')}
       <section class="card accent-card" id="trends-card"><div class="trends-head"><h2>Koersverloop</h2></div><div class="loading" style="padding:16px">Koersen laden…</div></section>
@@ -373,7 +374,7 @@ async function loadWatchCard() {
       return `
       <a class="trend" href="#/watch/${w.id}">
         <div class="row between">
-          <div class="grow"><b>${esc(w.name || w.ticker)}</b> <span class="muted small">${esc(w.ticker)}</span><br>
+          <div class="grow"><b>${esc(w.name || w.ticker)}</b> ${kindBadge(kindOf(data?.kind, w.name || data?.name))}<br><span class="muted small">${esc(w.ticker)}</span> ·
             <span class="num">${price == null ? '—' : curMoney(price, cur)}</span>
             ${w.note ? `<div class="small" style="margin-top:2px">⭐ ${esc(w.note)}</div>` : ''}</div>
           ${sig ? verdictBadge(sig.verdict) : ''}
@@ -465,7 +466,7 @@ async function viewPosition(ticker) {
     <div class="stack">
       <a href="#/" class="small">← Overzicht</a>
       <section class="card hero">
-        <div class="label">${esc(p.ticker)}</div>
+        <div class="label">${esc(p.ticker)} ${kindBadge(kindOf(p.kind, p.name))}</div>
         <div class="muted">${esc(p.name || '')}</div>
         <div class="big num">${money(p.value, p.currency)}</div>
         <div class="stats">
@@ -478,6 +479,7 @@ async function viewPosition(ticker) {
             <div class="muted small">${p.priceSource === 'manual' ? 'manueel ingesteld' : esc(timeAgo(p.priceUpdatedAt))}</div></div>
           <div class="stat"><div class="k">Totale kosten</div><div class="v num">${money(p.fees, p.currency)}</div></div>
         </div>
+        ${kindOf(p.kind, p.name) ? `<div class="kind-explain ${kindOf(p.kind, p.name)}">${KIND_TEXT[kindOf(p.kind, p.name)]}</div>` : ''}
         ${p.priceError ? `<p class="warn">Koersbron: ${esc(p.priceError)}</p>` : ''}
       </section>
 
@@ -604,7 +606,7 @@ async function loadTrendsCard(positions) {
       return `
       <a class="trend" href="#/position/${encodeURIComponent(p.ticker)}">
         <div class="row between">
-          <div class="grow"><b>${esc(p.ticker)}</b> <span class="num">${money(sig.last.c, p.currency)}</span></div>
+          <div class="grow"><b>${esc(p.ticker)}</b> ${kindBadge(kindOf(p.kind, p.name))}<br><span class="num">${money(sig.last.c, p.currency)}</span></div>
           ${verdictBadge(sig.verdict)}
         </div>
         ${sparkline(sig.year, p.avgPrice, true)}
