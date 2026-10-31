@@ -550,6 +550,7 @@ function priceSignals(data, avgPrice) {
     verdict = { level: 'fair', title: 'Redelijk goed', text: `Geen duidelijke dip: de koers staat ${dip > -0.005 ? 'op' : `${below(dip)} onder`} de top van de voorbije 3 maanden. Een gewoon moment voor je vaste inleg.` };
   }
   if (falling) verdict.text += ' Let op: de koers zit al langere tijd in een dalende trend. Koop enkel bij als je in dit fonds blijft geloven.';
+  if (a.scale > 1.3) verdict.text += ` Dit is een beweeglijk aandeel (typisch ±${num(a.vol * 100, 1)}% per dag), daarom gelden strengere drempels: groen pas vanaf ${num(5 * a.scale, 0)}% en blauw vanaf ${num(10 * a.scale, 0)}% onder de 3-maandtop.`;
   return { ...a, vsAvg, verdict };
 }
 
@@ -613,7 +614,7 @@ async function loadTrendsCard(positions) {
         </div>
       </a>`;
     }).join('')}
-    ${info('Blauwe lijn = koers van het voorbije jaar · grijze stippellijn = jouw gemiddelde aankoopprijs.<br><br>De kleur kijkt naar de dip t.o.v. de hoogste koers van de voorbije 3 maanden:<br>🔵 <b>uitstekend</b>: 10% of meer gezakt (of 20% onder de jaartop)<br>🟢 <b>goed</b>: 5 à 10% gezakt<br>🟠 <b>redelijk</b>: minder dan 5% gezakt<br>🔴 <b>relatief hoog</b>: op de top en duidelijk boven het 50-daags gemiddelde<br><br>Tik op een ETF voor de volledige grafiek.', 'Hoe lees ik dit?')}`;
+    ${info('Blauwe lijn = koers van het voorbije jaar · grijze stippellijn = jouw gemiddelde aankoopprijs.<br><br>De kleur kijkt naar de dip t.o.v. de hoogste koers van de voorbije 3 maanden:<br>🔵 <b>uitstekend</b>: 10% of meer gezakt (of 20% onder de jaartop)<br>🟢 <b>goed</b>: 5 à 10% gezakt<br>🟠 <b>redelijk</b>: minder dan 5% gezakt<br>🔴 <b>relatief hoog</b>: op de top en duidelijk boven het 50-daags gemiddelde<br><br>Voor beweeglijke aandelen (zoals NVIDIA) liggen de drempels hoger, in verhouding tot hoe sterk ze dagelijks schommelen.<br><br>Tik op een ETF voor de volledige grafiek.', 'Hoe lees ik dit?')}`;
 }
 
 async function loadPriceCard(ticker, p) {
