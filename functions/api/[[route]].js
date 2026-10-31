@@ -9,6 +9,7 @@ import { USAGE_FIELDS, TARIFF_FIELDS, monthlyOverview } from '../_lib/energy.js'
 import { privateRoute } from '../_lib/private.js';
 import { financeRoute } from '../_lib/finance.js';
 import { potsRoute } from '../_lib/pots.js';
+import { fuelPrices } from '../_lib/fuel.js';
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-^=]{0,19}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -490,6 +491,8 @@ async function route(method, parts, request, env, url) {
   }
 
   // Koersgrafiek: 5 jaar dagkoersen + huidige koers + eigen aankopen van deze ticker.
+  if (a === 'fuel' && method === 'GET') return json(await fuelPrices());
+
   if (a === 'watchlist') {
     const alertVal = (v) => (v === '' || v == null ? null : positiveNumber(v, 'alarmkoers'));
     if (!b && method === 'GET') {
