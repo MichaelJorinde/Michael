@@ -126,64 +126,48 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const adv = s?.water_advance || 0;
     if (!w.length) {
       return `<section class="card accent-card stack">
-        <h2>Water opvolgen</h2>
-        <p>Geef vanaf nu elke maand je waterverbruik in liter in, uit de HomeWizard Watermeter. Dan zie je hier je verbruik per dag, ongewone pieken (bv. een lek) en of je ${adv ? `voorschot van ${eur(adv)}/maand` : 'voorschot'} volstaat.</p>
+        <h2>💧 Water</h2>
+        <p>Geef elke maand je waterverbruik in liter in uit de HomeWizard Watermeter.</p>
         <a class="btn" href="#/energy/month/${prevMonth()}">Water van ${esc(monthName(prevMonth()))} ingeven</a>
       </section>`;
     }
     const days = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate();
-    const perDay = (m) => m.water.usage / days(m.month);
-    const last = w[w.length - 1];
-    // Jaarvergelijking in liter per dag: geschatte maanden per afrekeningsjaar (nov–okt),
-    // gemeten maanden apart. Liter per dag maakt periodes van verschillende lengte vergelijkbaar.
     const est = (m) => (m.note || '').startsWith('Water: schatting');
+    const last = w[w.length - 1];
+    const perDay = last.water.usage / days(last.month);
+    const prev = w.slice(0, -1);
+    const avgPrev = prev.length ? sum(prev.map((m) => m.water.usage)) / sum(prev.map((m) => days(m.month))) : null;
+    const diff = avgPrev ? perDay / avgPrev - 1 : null;
+    const verdict = diff == null ? null : diff > 0.25 ? ['high', '▲ hoger dan gewoonlijk'] : diff < -0.1 ? ['good', '▼ lager dan gewoonlijk'] : ['good', '✓ normaal'];
+
+    // Liter per dag per afrekeningsjaar (nov–okt) uit de Farys-schattingen, gemeten maanden per jaar apart.
     const groups = [];
     w.forEach((m) => {
       const y = Number(m.month.slice(0, 4));
       const key = est(m) ? `e${Number(m.month.slice(5)) >= 11 ? y : y - 1}` : `r${y}`;
       let g = groups.find((x) => x.key === key);
-      if (!g) groups.push(g = { key, est: est(m), months: [] });
+      if (!g) groups.push(g = { key, est: est(m), y: Number(m.month.slice(5)) >= 11 ? y : y - 1, months: [] });
       g.months.push(m);
     });
-    const short = (ym) => `${monthShort(Number(ym.slice(5)) - 1)} '${ym.slice(2, 4)}`;
-    const yearly = groups.map((g) => {
-      const litres = g.months.reduce((a, m) => a + m.water.usage, 0);
-      const d = g.months.reduce((a, m) => a + days(m.month), 0);
-      const first = g.months[0].month;
-      const lastM = g.months[g.months.length - 1].month;
-      return {
-        label: first === lastM ? monthName(first) : `${short(first)} – ${short(lastM)}`,
-        sub: g.est ? `${num(litres / 1000, 0)} m³ · schatting` : `${num(litres / 1000, 1)} m³ · gemeten`,
-        color: g.est ? 'color-mix(in srgb, var(--c3) 45%, transparent)' : 'var(--c3)',
-        values: { v: litres / d },
-      };
-    });
-    const prev = w.slice(0, -1);
-    const avgPrev = prev.length ? sum(prev.map(perDay)) / prev.length : null;
-    const diff = avgPrev ? perDay(last) / avgPrev - 1 : null;
-    const alert = diff != null && diff > 0.25;
-    // Het voorschot-saldo telt enkel echt gemeten maanden, niet de geschatte jaren uit oude afrekeningen.
-    const costs = w.filter((m) => !(m.note || '').startsWith('Water: schatting')).map((m) => m.water.cost).filter((c) => c != null);
-    const costSoFar = sum(costs);
-    const paid = adv * costs.length;
-    const balance = paid - costSoFar;
-    return `<section class="card ${alert ? 'accent-card' : ''}">
-      <div class="chart-head"><h2>Water opvolgen</h2><a class="small" href="#/energy/settings">Voorschot ›</a></div>
-      <p class="muted small" style="margin:2px 0 0">Laatste maand: ${esc(monthName(last.month))}</p>
-      <div class="stats" style="margin-top:10px">
-        <div class="stat"><div class="k">Per dag</div><div class="v num">${num(perDay(last), 0)} L</div>
-          ${diff != null ? `<div class="small ${diff > 0.05 ? 'loss' : diff < -0.05 ? 'gain' : 'muted'}">${diff >= 0 ? '+' : '−'}${num(Math.abs(diff) * 100, 0)}% t.o.v. gemiddeld</div>` : '<div class="muted small">eerste maand</div>'}</div>
-        <div class="stat"><div class="k">Deze maand</div><div class="v num">${liter(last.water.usage)}</div><div class="muted small">${num(last.water.usage / 1000, 1)} m³</div></div>
-        ${hasTariff ? `<div class="stat"><div class="k">Kosten deze maand</div><div class="v num">${eur(last.water.cost)}</div>${adv ? `<div class="muted small">voorschot ${eur(adv)}</div>` : ''}</div>` : ''}
-        ${hasTariff && adv ? `<div class="stat"><div class="k">Saldo t.o.v. voorschot (${costs.length} mnd)</div><div class="v num ${cls(balance)}">${balance >= 0 ? '+' : '−'}${eur(Math.abs(balance))}</div><div class="muted small">${balance >= 0 ? 'je betaalt genoeg' : 'voorschot te laag'}</div></div>` : ''}
-      </div>
-      ${yearly.length > 1 ? `<h2 style="margin-top:16px">Liter per dag door de jaren</h2>
-      ${barChart({ items: yearly, series: [{ key: 'v', label: 'Liter per dag', color: 'var(--c3)' }], format: (v) => `${num(v, 0)} L/dag` })}
-      <p class="muted small" style="margin:4px 0 0">Vage balken = jaargemiddelde uit je Farys-afrekening; volle balk = gemeten met de HomeWizard.</p>` : ''}
-      ${alert ? `<p class="banner" style="margin-top:12px">⚠️ Je verbruikte ${num(diff * 100, 0)}% meer per dag dan gemiddeld. Kijk in de HomeWizard-app of er 's nachts water blijft lopen (lekkende kraan of wc).</p>` : ''}
-      ${info('Kosten = verbruik × je waterprijs per m³ plus vaste kosten (zie Tarieven). Geef de vaste vergoeding van je waterfactuur in bij Tarieven voor een juistere vergelijking. Een gemiddeld Vlaams gezin verbruikt zo\'n 100 liter per persoon per dag.')}
+    const bars = groups.map((g) => ({
+      label: g.est ? `'${String(g.y).slice(2)}–'${String(g.y + 1).slice(2)}` : (g.months.length === 1 ? `${monthShort(Number(g.months[0].month.slice(5)) - 1)} '${g.months[0].month.slice(2, 4)}` : `'${g.key.slice(3)}`),
+      color: g.est ? 'color-mix(in srgb, var(--c3) 45%, transparent)' : 'var(--c3)',
+      values: { v: sum(g.months.map((m) => m.water.usage)) / sum(g.months.map((m) => days(m.month))) },
+    }));
+
+    const measured = w.filter((m) => !est(m) && m.water.cost != null);
+    const balance = adv * measured.length - sum(measured.map((m) => m.water.cost));
+    return `<section class="card ${diff != null && diff > 0.25 ? 'accent-card' : ''}">
+      <div class="chart-head"><h2>💧 Water</h2>${verdict ? `<span class="vbadge vbadge-${verdict[0]}">${verdict[1]}</span>` : ''}</div>
+      <div class="big num" style="font-size:2rem;font-weight:800;margin-top:6px">${num(perDay, 0)} L <span class="muted" style="font-size:1rem;font-weight:600">per dag</span></div>
+      <p class="muted small" style="margin:0">${esc(monthName(last.month))} · ${num(last.water.usage / 1000, 1)} m³${hasTariff && last.water.cost != null ? ` · ${eur(last.water.cost)}` : ''}</p>
+      ${bars.length > 1 ? `<div style="margin-top:14px">${barChart({ items: bars, series: [{ key: 'v', label: 'Liter per dag', color: 'var(--c3)' }], format: (v) => `${num(v, 0)} L` })}</div>` : ''}
+      ${hasTariff && adv && measured.length ? `<p class="small" style="margin:10px 0 0">Voorschot ${eur(adv)}/maand: <b class="${cls(balance)}">${balance >= 0 ? 'volstaat' : `${eur(-balance)} te weinig`}</b></p>` : ''}
+      ${diff != null && diff > 0.25 ? '<p class="small" style="margin:8px 0 0">⚠️ Kijk in de HomeWizard-app of er \'s nachts water blijft lopen.</p>' : ''}
+      ${info(`Grote cijfer = je verbruik per dag in de laatste maand, vergeleken met je gemiddelde. Lichte balken = jaargemiddelde uit je Farys-afrekeningen (afrekeningsjaar november–oktober); volle balk = gemeten met de HomeWizard. Een gemiddeld Vlaams gezin verbruikt zo'n 100 liter per persoon per dag.`)}
     </section>`;
   }
+
 
   const table = (head, rows) => `
     <details class="table-view"><summary>Toon als tabel</summary>
@@ -223,7 +207,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const chips = `
       <div class="chips">${[['total', 'Totaal'], ...Object.entries(UTIL).map(([k, u]) => [k, u.label]), ['battery', '🔋 Batterij']].map(([k, l]) => `
         <button type="button" class="chip ${k === util ? 'active' : ''}" data-util="${k}">${l}</button>`).join('')}</div>
-      ${years.length > 1 ? `<div class="chips">${years.map((y) => `
+      ${years.length > 1 && !['water', 'battery'].includes(util) ? `<div class="chips">${years.map((y) => `
         <button type="button" class="chip ${y === year ? 'active' : ''}" data-year="${y}">${y}</button>`).join('')}</div>` : ''}`;
     const tariffBanner = hasTariff ? '' : '<p class="banner">Stel je <a href="#/energy/tariffs">tarieven</a> in om ook de kosten te zien.</p>';
 
@@ -310,7 +294,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
       const usageSeries = isElec
         ? [{ key: 'import', label: 'Afname', color: 'var(--c1)' }, { key: 'export', label: 'Injectie', color: 'var(--c3)' }]
         : [{ key: 'usage', label: `Verbruik ${u.label.toLowerCase()}`, color: u.color }];
-      body = `
+      body = util === 'water' ? `${tariffBanner}${waterCard(data.months, data.settings, hasTariff)}` : `
         <section class="card hero">
           <div class="label">${u.label} · kosten ${year}</div>
           <div class="big num">${hasTariff ? eur(yearCost) : '—'}</div>
@@ -324,7 +308,6 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           </div>
         </section>
         ${tariffBanner}
-        ${util === 'water' ? waterCard(data.months, data.settings, hasTariff) : ''}
         ${have.length ? `
         <section class="card chart-card">
           <h2>Verbruik per maand</h2>
@@ -349,7 +332,7 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
           </table></div>
         </section>` : `<section class="card empty">Nog geen verbruik voor ${u.label.toLowerCase()} in ${year}.</section>`}`;
       drawCharts = () => {
-        if (!have.length) return;
+        if (!have.length || util === 'water') return;
         columnChart(document.getElementById('ch-u'), {
           labels, longLabels, series: usageSeries, format: fmt, tickFormat: compactNum, totalLabel: 'Netto',
           rows: months.map((m) => m && m[util] && (isElec ? { import: m.elec.import, export: -m.elec.export } : { usage: m[util].usage })),
