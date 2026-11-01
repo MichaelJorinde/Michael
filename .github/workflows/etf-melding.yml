@@ -1,6 +1,7 @@
 name: ETF-melding 20u
 
-# Elke werkdag om 20:00 Belgische tijd een pushmelding via ntfy.
+# Elke werkdag om 20:00 Belgische tijd: een pushmelding via ntfy als er iets te doen is
+# (koopmoment, alarm, verdere dip), en op vrijdag altijd een weekoverzicht.
 # GitHub rekent in UTC: 18:00 UTC in de zomer, 19:00 UTC in de winter. Beide staan
 # ingepland; de eerste stap laat enkel de run door die op 20u Brusselse tijd valt.
 on:
@@ -16,6 +17,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
     steps:
       - name: Juiste uur kiezen (zomer- of wintertijd)
         id: tijd
