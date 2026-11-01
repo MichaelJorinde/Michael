@@ -1,6 +1,6 @@
 // Energie: maandelijks totaalverbruik (HomeWizard), tarieven en overzicht per maand.
 import { pageHead, info } from './ui.js';
-import { columnChart, legend } from './charts.js';
+import { columnChart, barChart, legend } from './charts.js';
 
 const UTIL = {
   elec: { label: 'Elektriciteit', color: 'var(--c1)' },
@@ -134,6 +134,30 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const days = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate();
     const perDay = (m) => m.water.usage / days(m.month);
     const last = w[w.length - 1];
+    // Jaarvergelijking in liter per dag: geschatte maanden per afrekeningsjaar (nov–okt),
+    // gemeten maanden apart. Liter per dag maakt periodes van verschillende lengte vergelijkbaar.
+    const est = (m) => (m.note || '').startsWith('Water: schatting');
+    const groups = [];
+    w.forEach((m) => {
+      const y = Number(m.month.slice(0, 4));
+      const key = est(m) ? `e${Number(m.month.slice(5)) >= 11 ? y : y - 1}` : `r${y}`;
+      let g = groups.find((x) => x.key === key);
+      if (!g) groups.push(g = { key, est: est(m), months: [] });
+      g.months.push(m);
+    });
+    const short = (ym) => `${monthShort(Number(ym.slice(5)) - 1)} '${ym.slice(2, 4)}`;
+    const yearly = groups.map((g) => {
+      const litres = g.months.reduce((a, m) => a + m.water.usage, 0);
+      const d = g.months.reduce((a, m) => a + days(m.month), 0);
+      const first = g.months[0].month;
+      const lastM = g.months[g.months.length - 1].month;
+      return {
+        label: first === lastM ? monthName(first) : `${short(first)} – ${short(lastM)}`,
+        sub: g.est ? `${num(litres / 1000, 0)} m³ · schatting` : `${num(litres / 1000, 1)} m³ · gemeten`,
+        color: g.est ? 'color-mix(in srgb, var(--c3) 45%, transparent)' : 'var(--c3)',
+        values: { v: litres / d },
+      };
+    });
     const prev = w.slice(0, -1);
     const avgPrev = prev.length ? sum(prev.map(perDay)) / prev.length : null;
     const diff = avgPrev ? perDay(last) / avgPrev - 1 : null;
@@ -153,6 +177,9 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
         ${hasTariff ? `<div class="stat"><div class="k">Kosten deze maand</div><div class="v num">${eur(last.water.cost)}</div>${adv ? `<div class="muted small">voorschot ${eur(adv)}</div>` : ''}</div>` : ''}
         ${hasTariff && adv ? `<div class="stat"><div class="k">Saldo t.o.v. voorschot (${costs.length} mnd)</div><div class="v num ${cls(balance)}">${balance >= 0 ? '+' : '−'}${eur(Math.abs(balance))}</div><div class="muted small">${balance >= 0 ? 'je betaalt genoeg' : 'voorschot te laag'}</div></div>` : ''}
       </div>
+      ${yearly.length > 1 ? `<h2 style="margin-top:16px">Liter per dag door de jaren</h2>
+      ${barChart({ items: yearly, series: [{ key: 'v', label: 'Liter per dag', color: 'var(--c3)' }], format: (v) => `${num(v, 0)} L/dag` })}
+      <p class="muted small" style="margin:4px 0 0">Vage balken = jaargemiddelde uit je Farys-afrekening; volle balk = gemeten met de HomeWizard.</p>` : ''}
       ${alert ? `<p class="banner" style="margin-top:12px">⚠️ Je verbruikte ${num(diff * 100, 0)}% meer per dag dan gemiddeld. Kijk in de HomeWizard-app of er 's nachts water blijft lopen (lekkende kraan of wc).</p>` : ''}
       ${info('Kosten = verbruik × je waterprijs per m³ plus vaste kosten (zie Tarieven). Geef de vaste vergoeding van je waterfactuur in bij Tarieven voor een juistere vergelijking. Een gemiddeld Vlaams gezin verbruikt zo\'n 100 liter per persoon per dag.')}
     </section>`;
