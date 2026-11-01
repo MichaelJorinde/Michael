@@ -100,15 +100,24 @@ async function main() {
   if (failed.length) lines.push(`⚠️ Geen koers voor ${failed.join(', ')}`);
 
   const date = new Date().toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', weekday: 'short', day: 'numeric', month: 'short' });
+  // Enkel een melding als er iets te doen is (alarm, koopmoment, verdere dip), plus een
+  // weekoverzicht op vrijdag. Handmatig gestart (FORCE=1): altijd versturen.
+  const important = alarms.length > 0 || buy.length > 0 || deeper.length > 0;
+  const friday = new Date().toLocaleDateString('en-US', { timeZone: 'Europe/Brussels', weekday: 'short' }) === 'Fri';
+  if (!important && !friday && process.env.FORCE !== '1') {
+    console.log(`Niets bijzonders vandaag (${ok.length} ETF's); geen melding.`);
+    return;
+  }
   const msg = {
     topic: TOPIC,
-    title: alarms.length ? `🔔 ${alarms.map(alarmText).join(' · ')}`
+    title: alarms.length ? `🚨 ${alarms.map(alarmText).join(' · ')}`
       : deeper.length
-      ? `Dip zet verder: ${deeper.map((r) => `${label(r)} ${pct(r.change)}`).join(', ')}${buy.length ? ' · koopmoment' : ''}`
-      : buy.length ? `Koopmoment: ${buy.map(label).join(', ')}` : `ETF's ${date}: geen koopmoment`,
+      ? `📉 Dip zet verder: ${deeper.map((r) => `${label(r)} ${pct(r.change)}`).join(', ')}${buy.length ? ' · koopmoment' : ''}`
+      : buy.length ? `🟢 KOOPMOMENT: ${buy.map((r) => r.name || label(r)).join(', ')}` : `📊 Weekoverzicht beleggingen (${date})`,
     message: lines.join('\n'),
-    priority: alarms.length ? 5 : buy.length || deeper.length ? 4 : 2,
-    tags: [buy.length || deeper.length ? 'chart_with_downwards_trend' : 'bar_chart'],
+    // 5 = dringend: op iPhone een "tijdgevoelige" melding die ook door een focus heen komt.
+    priority: important ? 5 : 2,
+    tags: [important ? 'rotating_light' : 'bar_chart'],
     click: SITE,
   };
   if (DRY_RUN) { console.log(JSON.stringify({ ...msg, topic: '(verborgen)' }, null, 2)); return; }

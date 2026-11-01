@@ -11,6 +11,7 @@ const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Brus
 const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 const month = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
 const monthName = prev.toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' });
+const day = now.getDate(); // 1e van de maand = eerste herinnering, 3e en 5e = opnieuw als het nog niet ingegeven is
 
 // Al ingegeven? Dan is geen herinnering nodig.
 function alreadyEntered() {
@@ -26,9 +27,9 @@ async function main() {
   if (process.env.FORCE !== '1' && alreadyEntered()) { console.log('Al ingegeven; geen herinnering nodig.'); return; }
   const msg = {
     topic: TOPIC,
-    title: `Energie: geef ${monthName} in`,
+    title: `⚡ ${day > 1 ? 'Nog niet gedaan: ' : ''}geef je energie van ${monthName} in`,
     message: `Neem de HomeWizard Energy-app erbij en geef je totaalverbruik van ${monthName} in: elektriciteit (afname en injectie), gas en water. Tik op deze melding om meteen te beginnen.`,
-    priority: 3,
+    priority: day > 1 ? 5 : 4,
     tags: ['zap', 'droplet'],
     click: `${SITE}/#/energy/month/${month}`,
   };
