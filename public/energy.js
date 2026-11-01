@@ -138,7 +138,8 @@ export function energyViews({ app, api, esc, money, num, toast, submitting, setC
     const avgPrev = prev.length ? sum(prev.map(perDay)) / prev.length : null;
     const diff = avgPrev ? perDay(last) / avgPrev - 1 : null;
     const alert = diff != null && diff > 0.25;
-    const costs = w.map((m) => m.water.cost).filter((c) => c != null);
+    // Het voorschot-saldo telt enkel echt gemeten maanden, niet de geschatte jaren uit oude afrekeningen.
+    const costs = w.filter((m) => !(m.note || '').startsWith('Water: schatting')).map((m) => m.water.cost).filter((c) => c != null);
     const costSoFar = sum(costs);
     const paid = adv * costs.length;
     const balance = paid - costSoFar;
